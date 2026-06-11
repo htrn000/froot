@@ -6,6 +6,8 @@ __pycache__/
 
 /target/
 /dist/
+/web/dist/
+/web/node_modules/
 *.so
 
 .pytest_cache/

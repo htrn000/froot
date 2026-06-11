@@ -5,6 +5,7 @@ Fruitbox game backend scaffold using:
 - [uv](https://docs.astral.sh/uv/) for Python dependency and environment management;
 - [maturin](https://www.maturin.rs/) for Rust/PyO3 bindings;
 - FastAPI for the web API shell;
+- Vite, TypeScript, and vite-plugin-pwa for the browser PWA;
 - MySQL for persistent backend state;
 - Docker Compose for local stack orchestration.
 
@@ -28,23 +29,45 @@ Run the API:
 uv run uvicorn fruitbox_api.app:create_app --factory --reload
 ```
 
+Run the website in development mode:
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+Vite proxies `/api` and `/health` to `localhost:8000`.
+
+Build the PWA:
+
+```bash
+cd web
+npm run build
+```
+
+When `web/dist` exists, FastAPI serves the built website from `/` and keeps API
+routes under `/api/v1`.
+
 Run tests and linting:
 
 ```bash
 uv run pytest
 uv run ruff check .
+cargo test
+cd web && npm run build
 ```
 
 ## Docker Compose
 
-Start the API and MySQL:
+Start the website/API and MySQL:
 
 ```bash
 docker compose up --build
 ```
 
-The API listens on <http://localhost:8000>. MySQL listens on localhost port
-3306 with the development credentials from `docker-compose.yml`.
+The website and API listen on <http://localhost:8000>. MySQL listens on localhost
+port 3306 with the development credentials from `docker-compose.yml`.
 
 ## API endpoints
 
@@ -62,10 +85,14 @@ curl -X POST http://localhost:8000/api/v1/solver/static-move \
 
 ## Architecture guidance
 
-The current scaffold intentionally keeps FastAPI as the HTTP/async orchestration
-layer and Rust as the deterministic game/solver core. That is a good starting
-pattern for product APIs, MySQL access, and PWA-facing routes while preserving a
-path to reuse the Rust crate from Wasm.
+The current scaffold intentionally keeps Vite/TypeScript for the PWA, FastAPI as
+the HTTP/async orchestration layer, and Rust as the deterministic game/solver
+core. That is a good starting pattern for product APIs, MySQL access, and
+PWA-facing routes while preserving a path to reuse the Rust crate from Wasm.
+
+No frontend framework is required yet. Plain TypeScript keeps the current
+singleplayer game small; introduce React/Svelte/etc. later only if UI state,
+routing, or reusable components become painful.
 
 If real-time multiplayer, authoritative game ticks, matchmaking, or long-running
 bot jobs become the backend's dominant concern, consider promoting the Rust core

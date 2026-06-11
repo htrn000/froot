@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Fruitbox icon">
+  <rect width="512" height="512" rx="112" fill="#1b1025"/>
+  <circle cx="178" cy="220" r="78" fill="#ff6b6b"/>
+  <circle cx="304" cy="252" r="92" fill="#ffb347"/>
+  <circle cx="228" cy="328" r="72" fill="#7bd88f"/>
+  <path d="M268 116c43-12 75-1 99 32-41 9-74 0-99-32Z" fill="#7bd88f"/>
+  <path d="M250 137c12-34 33-56 64-66" stroke="#7bd88f" stroke-width="18" stroke-linecap="round"/>
+  <path d="M128 132h256v256H128z" fill="none" stroke="#fff3d1" stroke-width="24" stroke-linejoin="round"/>
+  <path d="M128 218h256M128 304h256M213 132v256M299 132v256" stroke="#fff3d1" stroke-width="14" opacity=".85"/>
+</svg>

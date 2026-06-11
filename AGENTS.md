@@ -1,7 +1,7 @@
 # Agent setup notes
 
-This repo uses Python 3.12, uv, maturin/PyO3, Rust/Cargo, FastAPI, and Docker
-Compose.
+This repo uses Python 3.12, uv, maturin/PyO3, Rust/Cargo, FastAPI, Vite,
+TypeScript, and Docker Compose.
 
 ## Bootstrap tools
 
@@ -17,6 +17,13 @@ Install project dependencies and build the Rust extension:
 
 ```bash
 uv sync
+```
+
+Install frontend dependencies:
+
+```bash
+cd web
+npm install
 ```
 
 ## Docker in cloud VMs
@@ -47,6 +54,13 @@ sudo dockerd \
 
 Use `sudo docker ...` if the current user is not in the Docker group.
 
+If `docker compose build` fails with `network bridge not found` in a restricted
+VM, validate the Dockerfile directly with host networking:
+
+```bash
+sudo docker build --network=host -t fruitbox-api-test .
+```
+
 ## Validation
 
 Run these checks before handing off changes:
@@ -55,5 +69,7 @@ Run these checks before handing off changes:
 uv run pytest
 uv run ruff check .
 cargo test
+cd web && npm run build
 sudo docker compose config
+sudo docker build --network=host -t fruitbox-api-test .
 ```

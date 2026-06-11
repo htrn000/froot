@@ -1,0 +1,30 @@
+services:
+  api:
+    build: .
+    environment:
+      FRUITBOX_DATABASE_URL: mysql+asyncmy://fruitbox:fruitbox@mysql:3306/fruitbox
+    ports:
+      - "8000:8000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: fruitbox
+      MYSQL_USER: fruitbox
+      MYSQL_PASSWORD: fruitbox
+      MYSQL_ROOT_PASSWORD: fruitbox-root
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -ufruitbox -pfruitbox --silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  mysql-data:

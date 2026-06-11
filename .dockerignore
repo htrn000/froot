@@ -1,0 +1,9 @@
+.git/
+.venv/
+target/
+dist/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.env
+mysql-data/

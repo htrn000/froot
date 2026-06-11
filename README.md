@@ -6,6 +6,7 @@ Fruitbox game backend scaffold using:
 - [maturin](https://www.maturin.rs/) for Rust/PyO3 bindings;
 - FastAPI for the web API shell;
 - Vite, TypeScript, and vite-plugin-pwa for the browser PWA;
+- Gymnasium/NumPy wrappers for Rust-backed RL simulation;
 - MySQL for persistent backend state;
 - Docker Compose for local stack orchestration.
 
@@ -57,6 +58,17 @@ uv run ruff check .
 cargo test
 cd web && npm run build
 ```
+
+## RL simulation
+
+The Rust core exposes a batched simulator through maturin. Python wraps it as:
+
+- `fruitbox_rl.FruitboxBatch` for NumPy-shaped batched simulation;
+- `fruitbox_rl.FruitboxEnv` for a Gymnasium env backed by Rust `batch_size=1`.
+
+For Stable-Baselines3 training, start with `sb3-contrib` `MaskablePPO` so the
+agent can consume `env.action_masks()` and avoid invalid rectangle actions. See
+`docs/rl.md` for the recommended SB3 subset and example training snippet.
 
 ## Docker Compose
 

@@ -9,7 +9,7 @@ That pattern is a good fit while the backend is mostly product/API orchestration
 
 - account/session APIs, persistence, and deployment configuration in Python;
 - async MySQL access and web concerns in FastAPI;
-- deterministic game rules, scoring, and static solver code in Rust;
+- deterministic game rules, scoring, batched simulation, and static solver code in Rust;
 - one Rust crate that can later expose both PyO3 bindings and a Wasm/browser build.
 - a minimal browser stack without a framework until the UI complexity needs one.
 
@@ -49,7 +49,9 @@ kept server-side at first and exposed as an online bot mode.
 - `web`: Vite/TypeScript PWA with a playable singleplayer board and solver hints.
 - `python/fruitbox_api`: FastAPI app, config, request/response models, routes.
 - `python/fruitbox_core`: Python import wrapper for the maturin extension.
+- `python/fruitbox_rl`: Gymnasium/NumPy adapters for Rust-backed simulation.
 - `src/lib.rs`: Rust/PyO3 game-core primitive for finding target-sum rectangles.
+- `docs/rl.md`: Stable-Baselines3 guidance for the Gymnasium env.
 - `docker-compose.yml`: API plus MySQL 8.4.
 - `pyproject.toml` and `uv.lock`: uv-managed Python dependencies.
 - `Cargo.toml` and `Cargo.lock`: Rust dependency lockfile.

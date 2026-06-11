@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 
 from fruitbox_api.models import BoardRequest, GameMode, Rectangle, StaticMoveResponse
-from fruitbox_core import find_sum_rectangles
+from fruitbox_core import find_sum_rectangles, solve_static_board
 
 router = APIRouter()
 
@@ -38,6 +38,11 @@ async def list_modes() -> list[GameMode]:
 
 @router.post("/solver/static-move", response_model=StaticMoveResponse)
 async def static_move(board: BoardRequest) -> StaticMoveResponse:
+    solution = solve_static_board(
+        [int(cell) for cell in board.cells],
+        board.width,
+        target=board.target,
+    )
     rectangles = [
         Rectangle(
             left=left,
@@ -56,8 +61,22 @@ async def static_move(board: BoardRequest) -> StaticMoveResponse:
     rectangles.sort(key=lambda rectangle: rectangle.score, reverse=True)
 
     return StaticMoveResponse(
-        move=rectangles[0] if rectangles else None,
+        move=_solution_move(board, solution.rectangles[0]) if solution.rectangles else None,
         candidates=rectangles,
+    )
+
+
+def _solution_move(
+    board: BoardRequest,
+    rectangle: tuple[int, int, int, int],
+) -> Rectangle:
+    left, top, right, bottom = rectangle
+    return Rectangle(
+        left=left,
+        top=top,
+        right=right,
+        bottom=bottom,
+        score=_score_rectangle(board, left, top, right, bottom),
     )
 
 

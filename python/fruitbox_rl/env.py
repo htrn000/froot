@@ -5,7 +5,11 @@ import numpy as np
 from gymnasium import spaces
 from numpy.typing import NDArray
 
-from fruitbox_core import BatchedFruitboxSimulator
+from fruitbox_core import (
+    BatchedFruitboxSimulator,
+    StaticSolverResult,
+    normalize_static_solver_limits,
+)
 
 
 Observation = NDArray[np.uint8]
@@ -49,6 +53,12 @@ class FruitboxBatch:
     def reset(self, seed: int | None = None) -> Observation:
         return self._reshape_observations(self._native.reset(seed))
 
+    def reset_at(self, batch_index: int, seed: int | None = None) -> Observation:
+        return self._uint8_array(self._native.reset_at(batch_index, seed)).reshape(
+            self.height,
+            self.width,
+        )
+
     def observations(self) -> Observation:
         return self._reshape_observations(self._native.observations())
 
@@ -71,6 +81,22 @@ class FruitboxBatch:
 
     def legal_actions(self, batch_index: int = 0) -> NDArray[np.int64]:
         return np.asarray(self._native.legal_actions(batch_index), dtype=np.int64)
+
+    def solve_static(
+        self,
+        batch_index: int = 0,
+        *,
+        max_solutions: int | None = 3,
+        timeout_ms: int | None = None,
+    ) -> StaticSolverResult:
+        max_solutions, timeout_ms = normalize_static_solver_limits(max_solutions, timeout_ms)
+        return StaticSolverResult.from_native(
+            self._native.solve_static(
+                batch_index,
+                max_solutions=max_solutions,
+                timeout_ms=timeout_ms,
+            )
+        )
 
     def action_to_rectangle(self, action: int) -> tuple[int, int, int, int]:
         return self._native.action_to_rectangle(action)
@@ -185,6 +211,18 @@ class FruitboxEnv(gym.Env[Observation, int]):
 
     def legal_actions(self) -> NDArray[np.int64]:
         return self.batch.legal_actions(0)
+
+    def solve_static(
+        self,
+        *,
+        max_solutions: int | None = 3,
+        timeout_ms: int | None = None,
+    ) -> StaticSolverResult:
+        return self.batch.solve_static(
+            0,
+            max_solutions=max_solutions,
+            timeout_ms=timeout_ms,
+        )
 
     def action_to_rectangle(self, action: int) -> tuple[int, int, int, int]:
         return self.batch.action_to_rectangle(action)

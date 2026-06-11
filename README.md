@@ -70,6 +70,14 @@ For Stable-Baselines3 training, start with `sb3-contrib` `MaskablePPO` so the
 agent can consume `env.action_masks()` and avoid invalid rectangle actions. See
 `docs/rl.md` for the recommended SB3 subset and example training snippet.
 
+Install the optional RL training stack and run the provided commands:
+
+```bash
+uv sync --group rl
+uv run --group rl fruitbox-train-maskable-ppo --total-timesteps 100000
+uv run --group rl fruitbox-infer-maskable-ppo models/fruitbox-maskable-ppo.zip
+```
+
 ## Docker Compose
 
 Start the website/API and MySQL:

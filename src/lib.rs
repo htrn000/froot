@@ -1,5 +1,7 @@
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+#[cfg(feature = "static-solver-timeout")]
+use std::time::{Duration, Instant};
 
 #[derive(Clone, Copy)]
 struct Rectangle {
@@ -16,6 +18,35 @@ struct GameState {
     terminated: bool,
     truncated: bool,
     rng: SplitMix64,
+}
+
+#[pyclass]
+struct StaticSolverResult {
+    #[pyo3(get)]
+    actions: Vec<usize>,
+    #[pyo3(get)]
+    rectangles: Vec<(usize, usize, usize, usize)>,
+    #[pyo3(get)]
+    score: u32,
+    #[pyo3(get)]
+    solutions_seen: u64,
+    #[pyo3(get)]
+    timed_out: bool,
+    #[pyo3(get)]
+    exhausted: bool,
+}
+
+struct SearchNode {
+    cells: Vec<u8>,
+    score: u32,
+    actions: Vec<usize>,
+    next_action: usize,
+}
+
+impl Rectangle {
+    fn as_tuple(self) -> (usize, usize, usize, usize) {
+        (self.left, self.top, self.right, self.bottom)
+    }
 }
 
 #[derive(Clone)]
@@ -109,6 +140,47 @@ fn find_sum_rectangles(
             )
         })
         .collect())
+}
+
+#[pyfunction]
+fn static_solver_supports_timeout() -> bool {
+    cfg!(feature = "static-solver-timeout")
+}
+
+#[pyfunction]
+#[pyo3(signature = (cells, width, target=10, max_solutions=None, timeout_ms=None))]
+fn solve_static_board_native(
+    cells: Vec<u8>,
+    width: usize,
+    target: u16,
+    max_solutions: Option<u64>,
+    timeout_ms: Option<u64>,
+) -> PyResult<StaticSolverResult> {
+    if width == 0 {
+        return Err(PyValueError::new_err("width must be greater than zero"));
+    }
+    if target == 0 {
+        return Err(PyValueError::new_err("target must be greater than zero"));
+    }
+    if cells.is_empty() || cells.len() % width != 0 {
+        return Err(PyValueError::new_err(
+            "cells length must be a non-empty multiple of width",
+        ));
+    }
+    if cells.iter().any(|cell| *cell > 9) {
+        return Err(PyValueError::new_err("cells must be in the range 0..=9"));
+    }
+
+    let height = cells.len() / width;
+    let actions = enumerate_rectangles(width, height);
+    Ok(solve_static_cells(
+        cells,
+        width,
+        target,
+        &actions,
+        normalize_max_solutions(max_solutions),
+        timeout_ms,
+    ))
 }
 
 #[pyclass]
@@ -307,6 +379,28 @@ impl BatchedFruitboxSimulator {
             .collect())
     }
 
+    #[pyo3(signature = (batch_index, max_solutions=None, timeout_ms=None))]
+    fn solve_static(
+        &self,
+        batch_index: usize,
+        max_solutions: Option<u64>,
+        timeout_ms: Option<u64>,
+    ) -> PyResult<StaticSolverResult> {
+        let game = self
+            .games
+            .get(batch_index)
+            .ok_or_else(|| PyValueError::new_err("batch_index is out of range"))?;
+
+        Ok(solve_static_cells(
+            game.cells.clone(),
+            self.width,
+            self.target,
+            &self.actions,
+            normalize_max_solutions(max_solutions),
+            timeout_ms,
+        ))
+    }
+
     fn step(&mut self, actions: Vec<usize>) -> PyResult<(Vec<u8>, Vec<f32>, Vec<bool>, Vec<bool>)> {
         if actions.len() != self.games.len() {
             return Err(PyValueError::new_err(
@@ -362,8 +456,103 @@ impl BatchedFruitboxSimulator {
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(find_sum_rectangles, m)?)?;
+    m.add_function(wrap_pyfunction!(solve_static_board_native, m)?)?;
+    m.add_function(wrap_pyfunction!(static_solver_supports_timeout, m)?)?;
     m.add_class::<BatchedFruitboxSimulator>()?;
+    m.add_class::<StaticSolverResult>()?;
     Ok(())
+}
+
+fn solve_static_cells(
+    cells: Vec<u8>,
+    width: usize,
+    target: u16,
+    actions: &[Rectangle],
+    max_solutions: Option<u64>,
+    timeout_ms: Option<u64>,
+) -> StaticSolverResult {
+    let deadline = solver_deadline(timeout_ms);
+    let mut stack = vec![SearchNode {
+        cells,
+        score: 0,
+        actions: Vec::new(),
+        next_action: 0,
+    }];
+    let mut best_actions = Vec::new();
+    let mut best_score = 0_u32;
+    let mut solutions_seen = 0_u64;
+    let mut timed_out = false;
+    let mut exhausted = false;
+
+    while !stack.is_empty() {
+        if solver_timed_out(deadline) {
+            timed_out = true;
+            break;
+        }
+        if max_solutions.is_some_and(|limit| solutions_seen >= limit) {
+            break;
+        }
+
+        let top_index = stack.len() - 1;
+        if stack[top_index].score > best_score {
+            best_score = stack[top_index].score;
+            best_actions = stack[top_index].actions.clone();
+        }
+
+        let mut next_legal_action = None;
+        while stack[top_index].next_action < actions.len() {
+            let action = stack[top_index].next_action;
+            stack[top_index].next_action += 1;
+            let rectangle = actions[action];
+
+            if is_legal_action(&stack[top_index].cells, width, target, rectangle) {
+                next_legal_action = Some((action, rectangle));
+                break;
+            }
+        }
+
+        if let Some((action, rectangle)) = next_legal_action {
+            let mut cells = stack[top_index].cells.clone();
+            let score = score_rectangle(&cells, width, rectangle) as u32;
+            apply_rectangle(&mut cells, width, rectangle);
+
+            let mut path = stack[top_index].actions.clone();
+            path.push(action);
+
+            stack.push(SearchNode {
+                cells,
+                score: stack[top_index].score + score,
+                actions: path,
+                next_action: 0,
+            });
+        } else {
+            if stack[top_index].score > best_score {
+                best_score = stack[top_index].score;
+                best_actions = stack[top_index].actions.clone();
+            }
+
+            solutions_seen = solutions_seen.saturating_add(1);
+            stack.pop();
+
+            if stack.is_empty() {
+                exhausted = true;
+            }
+        }
+    }
+
+    let rectangles = best_actions
+        .iter()
+        .map(|action| actions[*action].as_tuple())
+        .collect();
+
+    StaticSolverResult {
+        actions: best_actions,
+        rectangles,
+        score: best_score,
+        solutions_seen,
+        timed_out,
+        exhausted,
+    }
 }
 
 fn step_game(
@@ -466,6 +655,34 @@ fn has_legal_move(cells: &[u8], width: usize, target: u16) -> bool {
     find_rectangles_for_sum(cells, width, height, target)
         .into_iter()
         .any(|rectangle| score_rectangle(cells, width, rectangle) > 0)
+}
+
+fn is_legal_action(cells: &[u8], width: usize, target: u16, rectangle: Rectangle) -> bool {
+    sum_rectangle(cells, width, rectangle) == target && score_rectangle(cells, width, rectangle) > 0
+}
+
+fn normalize_max_solutions(max_solutions: Option<u64>) -> Option<u64> {
+    max_solutions.and_then(|value| (value > 0).then_some(value))
+}
+
+#[cfg(feature = "static-solver-timeout")]
+fn solver_deadline(timeout_ms: Option<u64>) -> Option<Instant> {
+    timeout_ms.map(|timeout_ms| Instant::now() + Duration::from_millis(timeout_ms))
+}
+
+#[cfg(not(feature = "static-solver-timeout"))]
+fn solver_deadline(_timeout_ms: Option<u64>) -> Option<()> {
+    None
+}
+
+#[cfg(feature = "static-solver-timeout")]
+fn solver_timed_out(deadline: Option<Instant>) -> bool {
+    deadline.is_some_and(|deadline| Instant::now() >= deadline)
+}
+
+#[cfg(not(feature = "static-solver-timeout"))]
+fn solver_timed_out(_deadline: Option<()>) -> bool {
+    false
 }
 
 fn sum_rectangle(cells: &[u8], width: usize, rectangle: Rectangle) -> u16 {

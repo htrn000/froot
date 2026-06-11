@@ -1,7 +1,8 @@
 # Agent setup notes
 
 This repo uses Python 3.12, uv, maturin/PyO3, Rust/Cargo, FastAPI, Vite,
-TypeScript, and Docker Compose.
+TypeScript, Gymnasium, optional Stable-Baselines3/SB3-contrib, and Docker
+Compose.
 
 ## Bootstrap tools
 
@@ -24,6 +25,13 @@ Install frontend dependencies:
 ```bash
 cd web
 npm install
+```
+
+Install the optional RL training stack only when needed; it pulls large PyTorch
+artifacts:
+
+```bash
+uv sync --group rl
 ```
 
 ## Docker in cloud VMs

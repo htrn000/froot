@@ -9,6 +9,8 @@ Python provides Gymnasium compatibility:
 - `fruitbox_rl.FruitboxBatch`: NumPy-shaped wrapper for Rust batch simulation.
 - `fruitbox_rl.FruitboxEnv`: `gymnasium.Env` backed by a Rust simulator with
   `batch_size=1`.
+- `fruitbox_rl.FruitboxVecEnv`: Stable-Baselines3 `VecEnv` backed by one Rust
+  batch simulator.
 
 This keeps PyTorch and Stable-Baselines3 integration idiomatic while allowing
 the hot loop to move through many Fruitbox boards in Rust.
@@ -34,23 +36,36 @@ rectangles are legal at any state. Core Stable-Baselines3 algorithms can train,
 but most will waste samples exploring invalid rectangles unless you heavily tune
 invalid-action penalties. `MaskablePPO` consumes `env.action_masks()` directly.
 
-Recommended first pass:
+Install the optional RL group before training:
+
+```bash
+uv sync --group rl
+```
+
+Recommended first pass from Python:
 
 ```python
-from sb3_contrib import MaskablePPO
+from fruitbox_rl import MaskablePPOConfig, train_maskable_ppo
 
-from fruitbox_rl import FruitboxEnv
-
-env = FruitboxEnv(width=8, height=6, target=10)
-model = MaskablePPO(
-    "MlpPolicy",
-    env,
-    n_steps=1024,
-    batch_size=256,
-    gamma=0.99,
-    verbose=1,
+config = MaskablePPOConfig(width=8, height=6, batch_size=16)
+model = train_maskable_ppo(
+    config,
+    total_timesteps=100_000,
+    save_path="models/fruitbox-maskable-ppo",
 )
-model.learn(total_timesteps=100_000)
+```
+
+Or use the provided CLIs:
+
+```bash
+uv run --group rl fruitbox-train-maskable-ppo \
+  --total-timesteps 100000 \
+  --save-path models/fruitbox-maskable-ppo
+
+uv run --group rl fruitbox-infer-maskable-ppo \
+  models/fruitbox-maskable-ppo.zip \
+  --batch-size 16 \
+  --steps 10
 ```
 
 Use these later only when there is a specific reason:
@@ -62,9 +77,33 @@ Use these later only when there is a specific reason:
   masked PPO for this action space.
 - `SAC`, `TD3`, `DDPG`: not a natural fit because Fruitbox actions are discrete.
 
-## Future vectorization
+## Batched vectorization
 
-Stable-Baselines3 expects its own vector-env interface. The Rust simulator is
-already batched, so the next performance step is a custom SB3 `VecEnv` adapter
-that maps one SB3 vector step to one `FruitboxBatch.step(...)` call instead of
-running many independent Python `FruitboxEnv` objects.
+Stable-Baselines3 expects its own vector-env interface. `FruitboxVecEnv` maps
+one SB3 vector step to one `FruitboxBatch.step(...)` call instead of running many
+independent Python `FruitboxEnv` objects.
+
+## Rust static solver
+
+The static solver is implemented in Rust with explicit DFS/backtracking over a
+stack. It repeatedly finds the next legal rectangle action, applies it to a
+cloned board state, and backtracks when no further action is available.
+
+Important parameters:
+
+- `max_solutions`: stop after this many terminal solutions. `0` or `None` means
+  no solution-count limit.
+- `timeout_ms`: optional wall-clock timeout when the crate is built with the
+  `static-solver-timeout` Cargo feature.
+
+The Cargo feature is enabled by default:
+
+```toml
+[features]
+default = ["static-solver-timeout"]
+static-solver-timeout = []
+```
+
+If a Python caller requests a timeout but the native extension was built without
+timeout support, the wrapper emits a runtime warning, disables the timeout, and
+uses `max_solutions=3` unless the caller already supplied a finite limit.

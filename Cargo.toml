@@ -7,5 +7,9 @@ edition = "2021"
 name = "_native"
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = ["static-solver-timeout"]
+static-solver-timeout = []
+
 [dependencies]
 pyo3 = { version = "0.28.3", features = ["extension-module"] }

@@ -1,7 +1,7 @@
 # Agent setup notes
 
-This repo uses Python 3.12, uv, maturin/PyO3, Rust/Cargo, FastAPI, Vite,
-TypeScript, Gymnasium, optional Stable-Baselines3/SB3-contrib, and Docker
+This repo uses Python 3.12, uv, maturin/PyO3, Rust/Cargo, wasm-pack, FastAPI,
+Vite, TypeScript, Gymnasium, optional Stable-Baselines3/SB3-contrib, and Docker
 Compose.
 
 ## Bootstrap tools
@@ -25,6 +25,17 @@ Install frontend dependencies:
 ```bash
 cd web
 npm install
+```
+
+If `wasm-pack` is missing and you need to regenerate browser Wasm bindings:
+
+```bash
+rustup toolchain install stable --profile minimal
+rustup default stable
+rustup target add wasm32-unknown-unknown
+cargo install wasm-pack --locked
+cd web
+npm run build:wasm
 ```
 
 Install the optional RL training stack only when needed; it pulls large PyTorch
@@ -78,6 +89,7 @@ uv run pytest
 uv run ruff check .
 cargo test
 cd web && npm run build
+cd web && npm run build:wasm && npm run build
 sudo docker compose config
 sudo docker build --network=host -t fruitbox-api-test .
 ```

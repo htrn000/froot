@@ -6,6 +6,7 @@ Fruitbox game backend scaffold using:
 - [maturin](https://www.maturin.rs/) for Rust/PyO3 bindings;
 - FastAPI for the web API shell;
 - Vite, TypeScript, and vite-plugin-pwa for the browser PWA;
+- wasm-bindgen/wasm-pack for Rust game logic in the browser;
 - Gymnasium/NumPy wrappers for Rust-backed RL simulation;
 - MySQL for persistent backend state;
 - Docker Compose for local stack orchestration.
@@ -45,6 +46,13 @@ Build the PWA:
 ```bash
 cd web
 npm run build
+```
+
+Rebuild the Rust Wasm bindings after editing `wasm/fruitbox_wasm`:
+
+```bash
+cd web
+npm run build:wasm
 ```
 
 When `web/dist` exists, FastAPI serves the built website from `/` and keeps API
@@ -105,10 +113,10 @@ curl -X POST http://localhost:8000/api/v1/solver/static-move \
 
 ## Architecture guidance
 
-The current scaffold intentionally keeps Vite/TypeScript for the PWA, FastAPI as
-the HTTP/async orchestration layer, and Rust as the deterministic game/solver
-core. That is a good starting pattern for product APIs, MySQL access, and
-PWA-facing routes while preserving a path to reuse the Rust crate from Wasm.
+The current scaffold intentionally keeps Vite/TypeScript for the PWA shell,
+FastAPI as the HTTP/async orchestration layer, and Rust as the deterministic
+game/solver core. Browser singleplayer now imports Rust-compiled Wasm for board
+generation, scoring, applying moves, and offline static solver hints.
 
 No frontend framework is required yet. Plain TypeScript keeps the current
 singleplayer game small; introduce React/Svelte/etc. later only if UI state,

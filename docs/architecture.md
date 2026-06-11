@@ -2,15 +2,15 @@
 
 ## Recommendation
 
-Start with a Vite/TypeScript PWA served by a FastAPI service that calls a Rust
-core through maturin/PyO3.
+Start with a Vite/TypeScript PWA served by a FastAPI service. Rust game logic is
+exposed to Python through maturin/PyO3 and to the browser through wasm-bindgen.
 
 That pattern is a good fit while the backend is mostly product/API orchestration:
 
 - account/session APIs, persistence, and deployment configuration in Python;
 - async MySQL access and web concerns in FastAPI;
 - deterministic game rules, scoring, batched simulation, and static solver code in Rust;
-- one Rust crate that can later expose both PyO3 bindings and a Wasm/browser build.
+- Rust browser bindings for local PWA board generation, scoring, and solving.
 - a minimal browser stack without a framework until the UI complexity needs one.
 
 Keep the Rust functions mostly pure and CPU-bound. Python should own the HTTP
@@ -36,7 +36,7 @@ multiplayer workload justifies it.
 Singleplayer should be designed as browser-first:
 
 - cache the app shell and static assets with the PWA service worker;
-- keep deterministic game rules in shared Rust so they can compile to Wasm;
+- keep deterministic game rules in Rust and ship them to the browser as Wasm;
 - store local progress in IndexedDB and sync when online.
 
 Static solver bots are the easiest offline target because they are deterministic
@@ -47,6 +47,7 @@ kept server-side at first and exposed as an online bot mode.
 ## Current scaffold
 
 - `web`: Vite/TypeScript PWA with a playable singleplayer board and solver hints.
+- `wasm/fruitbox_wasm`: wasm-bindgen crate used by the PWA for local Rust rules.
 - `python/fruitbox_api`: FastAPI app, config, request/response models, routes.
 - `python/fruitbox_core`: Python import wrapper for the maturin extension.
 - `python/fruitbox_rl`: Gymnasium/NumPy adapters for Rust-backed simulation.

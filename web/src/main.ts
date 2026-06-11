@@ -5,6 +5,7 @@ import {
   applyRectangle,
   createBoard,
   findStaticMoves,
+  initFruitboxWasm,
   isInside,
   rectangleFromCells,
   scoreRectangle,
@@ -19,6 +20,8 @@ if (!root) {
 }
 
 const appRoot = root;
+
+await initFruitboxWasm();
 
 let board = createBoard();
 let score = 0;

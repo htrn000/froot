@@ -1,6 +1,7 @@
 .git/
 .venv/
 target/
+wasm/fruitbox_wasm/target/
 dist/
 web/dist/
 web/node_modules/

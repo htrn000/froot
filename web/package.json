@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
+    "build:wasm": "wasm-pack build ../wasm/fruitbox_wasm --target web --out-dir ../../web/src/wasm --no-pack && rm -f src/wasm/.gitignore",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0"
   },

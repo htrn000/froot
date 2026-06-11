@@ -1,3 +1,14 @@
+import initWasm, {
+  apply_rectangle,
+  create_board_cells,
+  find_static_moves,
+  is_inside,
+  rectangle_from_cells,
+  score_rectangle,
+  sum_rectangle,
+  type WasmRectangle
+} from "./wasm/fruitbox_wasm";
+
 export type Rectangle = {
   left: number;
   top: number;
@@ -13,12 +24,21 @@ export type Board = {
   target: number;
 };
 
+let wasmInitialized = false;
+
+export async function initFruitboxWasm(): Promise<void> {
+  if (!wasmInitialized) {
+    await initWasm();
+    wasmInitialized = true;
+  }
+}
+
 export function createBoard(width = 8, height = 6, target = 10): Board {
   return {
     width,
     height,
     target,
-    cells: Array.from({ length: width * height }, () => randomFruitValue())
+    cells: Array.from(create_board_cells(width, height, randomSeed()))
   };
 }
 
@@ -27,84 +47,65 @@ export function rectangleFromCells(
   endIndex: number,
   width: number
 ): Omit<Rectangle, "score"> {
-  const startX = startIndex % width;
-  const startY = Math.floor(startIndex / width);
-  const endX = endIndex % width;
-  const endY = Math.floor(endIndex / width);
-
-  return {
-    left: Math.min(startX, endX),
-    top: Math.min(startY, endY),
-    right: Math.max(startX, endX),
-    bottom: Math.max(startY, endY)
-  };
+  return copyRectangle(rectangle_from_cells(startIndex, endIndex, width));
 }
 
 export function scoreRectangle(board: Board, rectangle: Omit<Rectangle, "score">): Rectangle {
-  let score = 0;
-
-  forEachRectangleIndex(board, rectangle, (index) => {
-    if (board.cells[index] > 0) {
-      score += 1;
-    }
-  });
-
-  return { ...rectangle, score };
+  return copyRectangle(
+    score_rectangle(
+      Uint8Array.from(board.cells),
+      board.width,
+      rectangle.left,
+      rectangle.top,
+      rectangle.right,
+      rectangle.bottom
+    )
+  );
 }
 
 export function sumRectangle(board: Board, rectangle: Omit<Rectangle, "score">): number {
-  let sum = 0;
-
-  forEachRectangleIndex(board, rectangle, (index) => {
-    sum += board.cells[index];
-  });
-
-  return sum;
+  return sum_rectangle(
+    Uint8Array.from(board.cells),
+    board.width,
+    rectangle.left,
+    rectangle.top,
+    rectangle.right,
+    rectangle.bottom
+  );
 }
 
 export function applyRectangle(board: Board, rectangle: Rectangle): Board {
-  const cells = [...board.cells];
-
-  forEachRectangleIndex(board, rectangle, (index) => {
-    cells[index] = 0;
-  });
-
-  return { ...board, cells };
+  return {
+    ...board,
+    cells: Array.from(
+      apply_rectangle(
+        Uint8Array.from(board.cells),
+        board.width,
+        rectangle.left,
+        rectangle.top,
+        rectangle.right,
+        rectangle.bottom
+      )
+    )
+  };
 }
 
 export function findStaticMoves(board: Board): Rectangle[] {
+  const wasmMoves = find_static_moves(Uint8Array.from(board.cells), board.width, board.target);
   const moves: Rectangle[] = [];
 
-  for (let top = 0; top < board.height; top += 1) {
-    const columnSums = Array.from({ length: board.width }, () => 0);
-
-    for (let bottom = top; bottom < board.height; bottom += 1) {
-      for (let x = 0; x < board.width; x += 1) {
-        columnSums[x] += board.cells[bottom * board.width + x];
-      }
-
-      for (let left = 0; left < board.width; left += 1) {
-        let sum = 0;
-
-        for (let right = left; right < board.width; right += 1) {
-          sum += columnSums[right];
-
-          if (sum === board.target) {
-            const move = scoreRectangle(board, { left, top, right, bottom });
-            if (move.score > 0) {
-              moves.push(move);
-            }
-          }
-
-          if (sum > board.target) {
-            break;
-          }
-        }
+  try {
+    for (let index = 0; index < wasmMoves.length; index += 1) {
+      const move = wasmMoves.get(index);
+      if (move) {
+        moves.push(copyRectangle(move));
       }
     }
+  } finally {
+    wasmMoves.free();
   }
 
-  return moves.sort((a, b) => b.score - a.score || area(a) - area(b));
+  return moves;
 }
 
 export function isInside(rectangle: Omit<Rectangle, "score"> | null, index: number, width: number): boolean {
@@ -112,29 +113,25 @@ export function isInside(rectangle: Omit<Rectangle, "score"> | null, index: numb
     return false;
   }
 
-  const x = index % width;
-  const y = Math.floor(index / width);
-  return x >= rectangle.left && x <= rectangle.right && y >= rectangle.top && y <= rectangle.bottom;
+  return is_inside(index, width, rectangle.left, rectangle.top, rectangle.right, rectangle.bottom);
 }
 
-function forEachRectangleIndex(
-  board: Board,
-  rectangle: Omit<Rectangle, "score">,
-  callback: (index: number) => void
-) {
-  for (let y = rectangle.top; y <= rectangle.bottom; y += 1) {
-    for (let x = rectangle.left; x <= rectangle.right; x += 1) {
-      callback(y * board.width + x);
-    }
+function copyRectangle(rectangle: WasmRectangle): Rectangle {
+  try {
+    return {
+      left: rectangle.left,
+      top: rectangle.top,
+      right: rectangle.right,
+      bottom: rectangle.bottom,
+      score: rectangle.score
+    };
+  } finally {
+    rectangle.free();
   }
 }
 
-function area(rectangle: Omit<Rectangle, "score">): number {
-  return (rectangle.right - rectangle.left + 1) * (rectangle.bottom - rectangle.top + 1);
-}
-
-function randomFruitValue(): number {
+function randomSeed(): number {
   const values = new Uint32Array(1);
   crypto.getRandomValues(values);
-  return (values[0] % 9) + 1;
+  return values[0];
 }

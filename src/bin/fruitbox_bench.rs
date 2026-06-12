@@ -44,17 +44,24 @@ struct Config {
     max_attempts: usize,
     #[arg(long, default_value_t = 1_000_000)]
     max_states: usize,
+    /// Print sampled boards as text grids. By default this is sampling-only and
+    /// does not run solvers unless `--run-solvers` is also set.
     #[arg(long)]
     print_board: bool,
+    /// Run solver benchmarks even when `--print-board` is set.
+    #[arg(long)]
+    run_solvers: bool,
 }
 
 fn main() -> ExitCode {
     let config = Config::parse();
 
     let mut rng = Rng64::new(config.seed);
-    println!(
-        "sample,generator,approach,width,height,total_sum,solvable,max_score,empty_steps,states,terminal_paths,empty_solutions,elapsed_us,status"
-    );
+    if should_run_solvers(&config) {
+        println!(
+            "sample,generator,approach,width,height,total_sum,solvable,max_score,empty_steps,states,terminal_paths,empty_solutions,elapsed_us,status"
+        );
+    }
 
     for sample in 0..config.samples {
         let board = match build_board(&config, &mut rng) {
@@ -67,10 +74,16 @@ fn main() -> ExitCode {
         if config.print_board {
             print_board(sample, &board);
         }
-        run_approaches(sample, &config, &board);
+        if should_run_solvers(&config) {
+            run_approaches(sample, &config, &board);
+        }
     }
 
     ExitCode::SUCCESS
+}
+
+fn should_run_solvers(config: &Config) -> bool {
+    !config.print_board || config.run_solvers
 }
 
 fn build_board(config: &Config, rng: &mut Rng64) -> Result<Board, String> {

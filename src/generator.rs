@@ -119,35 +119,19 @@ pub fn generate_fungster_board(
     }
 
     let mut cells = vec![0_u8; config.width * config.height];
-    let mut placed = 0;
-    let mut misses = 0;
-    let max_misses = config.groups.saturating_mul(200).max(500);
-
-    while placed < config.groups && misses < max_misses {
-        let area = rng.range(config.min_tuple, config.max_tuple + 1);
-        let shapes = rectangle_shapes(area);
-        let (rect_width, rect_height) = shapes[rng.range(0, shapes.len())];
-        if rect_width > config.width || rect_height > config.height {
-            misses += 1;
-            continue;
+    for y in 0..config.height {
+        let segments = partition_line(config.width, config.min_tuple, config.max_tuple, rng)
+            .ok_or(GeneratorError::InvalidConfig(
+                "width cannot be tiled by the configured tuple bounds",
+            ))?;
+        let mut left = 0;
+        for segment_len in segments {
+            let tuple = positive_tuple_sum(TARGET_SUM as u8, segment_len, rng);
+            for (offset, value) in tuple.into_iter().enumerate() {
+                cells[y * config.width + left + offset] = value;
+            }
+            left += segment_len;
         }
-
-        let left = rng.range(0, config.width - rect_width + 1);
-        let top = rng.range(0, config.height - rect_height + 1);
-        let indices: Vec<usize> = (top..top + rect_height)
-            .flat_map(|y| (left..left + rect_width).map(move |x| y * config.width + x))
-            .collect();
-
-        if indices.iter().any(|&index| cells[index] != 0) {
-            misses += 1;
-            continue;
-        }
-
-        let tuple = positive_tuple_sum(TARGET_SUM as u8, area, rng);
-        for (&index, value) in indices.iter().zip(tuple) {
-            cells[index] = value;
-        }
-        placed += 1;
     }
 
     Board::new(cells, config.width).map_err(GeneratorError::from)
@@ -214,11 +198,39 @@ pub fn generate_random_board(
     Board::new(cells, config.width).map_err(GeneratorError::from)
 }
 
-fn rectangle_shapes(area: usize) -> Vec<(usize, usize)> {
-    (1..=area)
-        .filter(|width| area % width == 0)
-        .map(|width| (width, area / width))
-        .collect()
+fn partition_line(
+    width: usize,
+    min_tuple: usize,
+    max_tuple: usize,
+    rng: &mut Rng64,
+) -> Option<Vec<usize>> {
+    fn can_partition(width: usize, min_tuple: usize, max_tuple: usize) -> bool {
+        width == 0
+            || (min_tuple..=max_tuple)
+                .any(|len| width >= len && can_partition(width - len, min_tuple, max_tuple))
+    }
+
+    if !can_partition(width, min_tuple, max_tuple) {
+        return None;
+    }
+
+    let mut remaining = width;
+    let mut segments = Vec::new();
+    while remaining > 0 {
+        let mut candidates = (min_tuple..=max_tuple)
+            .filter(|len| {
+                remaining >= *len && can_partition(remaining - *len, min_tuple, max_tuple)
+            })
+            .collect::<Vec<_>>();
+        for index in (1..candidates.len()).rev() {
+            let swap = rng.range(0, index + 1);
+            candidates.swap(index, swap);
+        }
+        let len = candidates[0];
+        segments.push(len);
+        remaining -= len;
+    }
+    Some(segments)
 }
 
 fn positive_tuple_sum(target: u8, len: usize, rng: &mut Rng64) -> Vec<u8> {

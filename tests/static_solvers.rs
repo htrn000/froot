@@ -49,6 +49,7 @@ fn dfs_solver_finds_fungster_board_solution() {
     .unwrap();
 
     assert_eq!(total_sum % TARGET_SUM, 0);
+    assert!(board.cells().iter().all(|cell| (1..=9).contains(cell)));
     assert!(solution.empty_solvable);
 }
 

@@ -1,7 +1,7 @@
 use _native::board::{Board, TARGET_SUM};
 use _native::generator::{
-    generate_fungster_board, generate_rejection_solvable_board, FungsterConfig, GeneratorError,
-    RejectionConfig, Rng64,
+    generate_fungster_board, generate_random_board, generate_rejection_solvable_board,
+    FungsterConfig, GeneratorError, RandomConfig, RejectionConfig, Rng64,
 };
 use _native::solver::{solve_exhaustive, solve_first_empty, MoveOrdering, SolverLimits};
 
@@ -69,4 +69,16 @@ fn rejection_generator_continues_after_state_limited_attempts() {
         result,
         Err(GeneratorError::ExhaustedAttempts { attempts: 2 })
     ));
+}
+
+#[test]
+fn random_generator_uses_official_size_and_total_sum_rule_by_default() {
+    let mut rng = Rng64::new(19);
+    let board = generate_random_board(&RandomConfig::default(), &mut rng).unwrap();
+    let total_sum: u16 = board.cells().iter().map(|cell| *cell as u16).sum();
+
+    assert_eq!(board.width(), 17);
+    assert_eq!(board.height(), 10);
+    assert!(board.cells().iter().all(|cell| (1..=9).contains(cell)));
+    assert_eq!(total_sum % TARGET_SUM, 0);
 }

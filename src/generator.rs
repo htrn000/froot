@@ -55,6 +55,21 @@ pub struct RejectionConfig {
     pub solver_limits: SolverLimits,
 }
 
+#[derive(Clone, Debug)]
+pub struct RandomConfig {
+    pub width: usize,
+    pub height: usize,
+}
+
+impl Default for RandomConfig {
+    fn default() -> Self {
+        Self {
+            width: 17,
+            height: 10,
+        }
+    }
+}
+
 impl Default for RejectionConfig {
     fn default() -> Self {
         Self {
@@ -149,19 +164,13 @@ pub fn generate_rejection_solvable_board(
     }
 
     for _ in 0..config.max_attempts {
-        let mut cells = vec![0_u8; config.width * config.height];
-        loop {
-            let mut sum = 0_u16;
-            for cell in &mut cells {
-                *cell = rng.range(1, 10) as u8;
-                sum += *cell as u16;
-            }
-            if sum % TARGET_SUM == 0 {
-                break;
-            }
-        }
-
-        let board = Board::new(cells, config.width)?;
+        let board = generate_random_board(
+            &RandomConfig {
+                width: config.width,
+                height: config.height,
+            },
+            rng,
+        )?;
         let solution = match solve_first_empty(
             &board,
             MoveOrdering::LargestScoreFirst,
@@ -178,6 +187,31 @@ pub fn generate_rejection_solvable_board(
     Err(GeneratorError::ExhaustedAttempts {
         attempts: config.max_attempts,
     })
+}
+
+pub fn generate_random_board(
+    config: &RandomConfig,
+    rng: &mut Rng64,
+) -> Result<Board, GeneratorError> {
+    if config.width == 0 || config.height == 0 {
+        return Err(GeneratorError::InvalidConfig(
+            "width and height must be positive",
+        ));
+    }
+
+    let mut cells = vec![0_u8; config.width * config.height];
+    loop {
+        let mut sum = 0_u16;
+        for cell in &mut cells {
+            *cell = rng.range(1, 10) as u8;
+            sum += *cell as u16;
+        }
+        if sum % TARGET_SUM == 0 {
+            break;
+        }
+    }
+
+    Board::new(cells, config.width).map_err(GeneratorError::from)
 }
 
 fn rectangle_shapes(area: usize) -> Vec<(usize, usize)> {

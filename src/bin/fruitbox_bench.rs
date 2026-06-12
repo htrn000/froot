@@ -3,8 +3,8 @@ use std::process::ExitCode;
 
 use _native::board::Board;
 use _native::generator::{
-    generate_fungster_board, generate_rejection_solvable_board, FungsterConfig, RejectionConfig,
-    Rng64,
+    generate_fungster_board, generate_random_board, generate_rejection_solvable_board,
+    FungsterConfig, RandomConfig, RejectionConfig, Rng64,
 };
 use _native::solver::{
     solve_exhaustive, solve_first_empty, MoveOrdering, SearchError, SolverLimits,
@@ -13,6 +13,7 @@ use _native::solver::{
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum GeneratorKind {
     Fungster,
+    Random,
     Rejection,
 }
 
@@ -94,6 +95,14 @@ fn build_board(config: &Config, rng: &mut Rng64) -> Result<Board, String> {
             rng,
         )
         .map_err(|error| format!("{error:?}")),
+        GeneratorKind::Random => generate_random_board(
+            &RandomConfig {
+                width: config.width,
+                height: config.height,
+            },
+            rng,
+        )
+        .map_err(|error| format!("{error:?}")),
         GeneratorKind::Rejection => generate_rejection_solvable_board(
             &RejectionConfig {
                 width: config.width,
@@ -129,6 +138,7 @@ fn print_board(sample: usize, board: &Board) {
 fn run_approaches(sample: usize, config: &Config, board: &Board) {
     let generator = match config.generator {
         GeneratorKind::Fungster => "fungster",
+        GeneratorKind::Random => "random",
         GeneratorKind::Rejection => "rejection",
     };
     let total_sum: u16 = board.cells().iter().map(|cell| *cell as u16).sum();
@@ -205,6 +215,7 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Config, String> {
             "--generator" => {
                 config.generator = match take_value(&mut args, "--generator")?.as_str() {
                     "fungster" => GeneratorKind::Fungster,
+                    "random" => GeneratorKind::Random,
                     "rejection" => GeneratorKind::Rejection,
                     value => return Err(format!("unknown generator {value:?}")),
                 };
@@ -255,6 +266,6 @@ fn parse_u64(
 
 fn print_usage() {
     eprintln!(
-        "usage: cargo run --release --bin fruitbox_bench -- [--generator fungster|rejection] [--width N] [--height N] [--samples N] [--seed N] [--groups N] [--min-tuple N] [--max-tuple N] [--max-attempts N] [--max-states N] [--print-board]"
+        "usage: cargo run --release --bin fruitbox_bench -- [--generator fungster|random|rejection] [--width N] [--height N] [--samples N] [--seed N] [--groups N] [--min-tuple N] [--max-tuple N] [--max-attempts N] [--max-states N] [--print-board]"
     );
 }

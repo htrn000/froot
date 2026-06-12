@@ -58,8 +58,8 @@ pub struct RejectionConfig {
 impl Default for RejectionConfig {
     fn default() -> Self {
         Self {
-            width: 8,
-            height: 6,
+            width: 17,
+            height: 10,
             max_attempts: 100,
             solver_limits: SolverLimits {
                 max_states: 250_000,
@@ -162,11 +162,14 @@ pub fn generate_rejection_solvable_board(
         }
 
         let board = Board::new(cells, config.width)?;
-        let solution = solve_first_empty(
+        let solution = match solve_first_empty(
             &board,
             MoveOrdering::LargestScoreFirst,
             config.solver_limits,
-        )?;
+        ) {
+            Ok(solution) => solution,
+            Err(SearchError::StateLimitExceeded { .. }) => continue,
+        };
         if solution.empty_solvable {
             return Ok(board);
         }

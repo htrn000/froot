@@ -43,7 +43,9 @@ cargo run --release --bin fruitbox_bench -- --generator fungster --width 17 --he
 
 The benchmark prints CSV rows for DFS single-solution candidates and the
 memoized exhaustive DP summary. Use `--generator rejection` to sample positive
-boards until the DFS candidate finds an empty-board solution.
+17x10 boards until the DFS candidate finds an empty-board solution. Prefer
+official 17x10 grids for benchmark evidence; smaller grids are only for fast
+debugging or solver research iteration.
 
 ## Docker Compose
 

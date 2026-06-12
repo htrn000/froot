@@ -1,5 +1,8 @@
 use _native::board::{Board, TARGET_SUM};
-use _native::generator::{generate_fungster_board, FungsterConfig, Rng64};
+use _native::generator::{
+    generate_fungster_board, generate_rejection_solvable_board, FungsterConfig, GeneratorError,
+    RejectionConfig, Rng64,
+};
 use _native::solver::{solve_exhaustive, solve_first_empty, MoveOrdering, SolverLimits};
 
 #[test]
@@ -47,4 +50,23 @@ fn dfs_solver_finds_fungster_board_solution() {
 
     assert_eq!(total_sum % TARGET_SUM, 0);
     assert!(solution.empty_solvable);
+}
+
+#[test]
+fn rejection_generator_continues_after_state_limited_attempts() {
+    let mut rng = Rng64::new(13);
+    let result = generate_rejection_solvable_board(
+        &RejectionConfig {
+            width: 17,
+            height: 10,
+            max_attempts: 2,
+            solver_limits: SolverLimits { max_states: 1 },
+        },
+        &mut rng,
+    );
+
+    assert!(matches!(
+        result,
+        Err(GeneratorError::ExhaustedAttempts { attempts: 2 })
+    ));
 }

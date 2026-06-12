@@ -1,5 +1,5 @@
 use crate::board::{Board, BoardError, TARGET_SUM};
-use crate::solver::{solve_first_empty, MoveOrdering, SearchError, SolverLimits};
+use crate::solver::{has_empty_solution, MoveOrdering, SearchError, SolverLimits};
 
 #[derive(Clone, Debug)]
 /// Deterministic RNG for reproducible benchmark boards. It keeps a 256-bit
@@ -196,7 +196,7 @@ pub fn generate_rejection_solvable_board(
             },
             rng,
         )?;
-        let solution = match solve_first_empty(
+        let solution = match has_empty_solution(
             &board,
             MoveOrdering::LargestScoreFirst,
             config.solver_limits,

@@ -3,7 +3,10 @@ use _native::generator::{
     generate_fungster_board, generate_random_board, generate_rejection_solvable_board,
     FungsterAxis, FungsterConfig, GeneratorError, RandomConfig, RejectionConfig, Rng64,
 };
-use _native::solver::{solve_exhaustive, solve_first_empty, MoveOrdering, SolverLimits};
+use _native::solver::{
+    has_empty_solution, solve_exhaustive, solve_first_empty, MoveOrdering, SearchError,
+    SolverLimits,
+};
 
 #[test]
 fn rng_is_deterministic_and_uses_full_seeded_state() {
@@ -67,6 +70,35 @@ fn dfs_solver_finds_fungster_board_solution() {
     assert_eq!(total_sum % TARGET_SUM, 0);
     assert!(board.cells().iter().all(|cell| (1..=9).contains(cell)));
     assert!(solution.empty_solvable);
+}
+
+#[test]
+fn early_empty_search_finds_solution_without_retaining_path() {
+    let board = Board::new(vec![1, 9, 4, 6], 2).unwrap();
+    let result = has_empty_solution(
+        &board,
+        MoveOrdering::LargestScoreFirst,
+        SolverLimits::default(),
+    )
+    .unwrap();
+
+    assert!(result.empty_solvable);
+    assert!(result.states_evaluated > 0);
+}
+
+#[test]
+fn early_empty_search_respects_state_limits() {
+    let board = Board::new(vec![1, 9, 4, 6], 2).unwrap();
+    let result = has_empty_solution(
+        &board,
+        MoveOrdering::LargestScoreFirst,
+        SolverLimits { max_states: 0 },
+    );
+
+    assert_eq!(
+        result,
+        Err(SearchError::StateLimitExceeded { max_states: 0 })
+    );
 }
 
 #[test]

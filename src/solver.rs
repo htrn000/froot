@@ -78,6 +78,16 @@ pub struct SingleSolution {
     pub elapsed: Duration,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+/// Minimal first-hit result for callers that only need to know whether an
+/// empty-board solution exists under a budget. Rejection sampling uses this
+/// instead of `SingleSolution` to avoid retaining a path it will discard.
+pub struct EmptySearchResult {
+    pub empty_solvable: bool,
+    pub states_evaluated: usize,
+    pub elapsed: Duration,
+}
+
 #[derive(Clone, Copy, Debug)]
 /// Internal memo payload for one board state. Keeping this smaller than the
 /// public summary avoids recording elapsed time and evaluated-state counts per
@@ -104,6 +114,30 @@ pub fn solve_exhaustive(
         empty_solution_count: summary.empty_solution_count,
         states_evaluated: memo.len(),
         terminal_paths: summary.terminal_paths,
+        elapsed: started.elapsed(),
+    })
+}
+
+pub fn has_empty_solution(
+    board: &Board,
+    ordering: MoveOrdering,
+    limits: SolverLimits,
+) -> Result<EmptySearchResult, SearchError> {
+    let started = Instant::now();
+    let mut dead_states = HashSet::new();
+    let mut states_evaluated = 0;
+    let empty_solvable = dfs_has_empty(
+        board,
+        board.initial_state(),
+        ordering,
+        limits,
+        &mut dead_states,
+        &mut states_evaluated,
+    )?;
+
+    Ok(EmptySearchResult {
+        empty_solvable,
+        states_evaluated,
         elapsed: started.elapsed(),
     })
 }
@@ -208,6 +242,44 @@ fn solve_state(
     Ok(summary)
 }
 
+fn dfs_has_empty(
+    board: &Board,
+    state: Mask,
+    ordering: MoveOrdering,
+    limits: SolverLimits,
+    dead_states: &mut HashSet<Mask>,
+    states_evaluated: &mut usize,
+) -> Result<bool, SearchError> {
+    if state.is_empty() {
+        return Ok(true);
+    }
+    if dead_states.contains(&state) {
+        return Ok(false);
+    }
+    if *states_evaluated >= limits.max_states {
+        return Err(SearchError::StateLimitExceeded {
+            max_states: limits.max_states,
+        });
+    }
+    *states_evaluated += 1;
+
+    for rectangle in ordered_candidates(board, state, ordering) {
+        if dfs_has_empty(
+            board,
+            board.apply(state, rectangle),
+            ordering,
+            limits,
+            dead_states,
+            states_evaluated,
+        )? {
+            return Ok(true);
+        }
+    }
+
+    dead_states.insert(state);
+    Ok(false)
+}
+
 fn dfs_first_empty(
     board: &Board,
     state: Mask,
@@ -230,13 +302,7 @@ fn dfs_first_empty(
     }
     *states_evaluated += 1;
 
-    let mut candidates: Vec<Rectangle> = board.valid_moves(state, TARGET_SUM).collect();
-    candidates.sort_by_key(|rectangle| board.live_score(state, *rectangle));
-    if ordering == MoveOrdering::LargestScoreFirst {
-        candidates.reverse();
-    }
-
-    for rectangle in candidates {
+    for rectangle in ordered_candidates(board, state, ordering) {
         let score = board.live_score(state, rectangle);
         moves.push((
             rectangle.left,
@@ -261,4 +327,13 @@ fn dfs_first_empty(
 
     dead_states.insert(state);
     Ok(false)
+}
+
+fn ordered_candidates(board: &Board, state: Mask, ordering: MoveOrdering) -> Vec<Rectangle> {
+    let mut candidates: Vec<Rectangle> = board.valid_moves(state, TARGET_SUM).collect();
+    candidates.sort_by_key(|rectangle| board.live_score(state, *rectangle));
+    if ordering == MoveOrdering::LargestScoreFirst {
+        candidates.reverse();
+    }
+    candidates
 }

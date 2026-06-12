@@ -28,6 +28,7 @@ struct Config {
     max_tuple: usize,
     max_attempts: usize,
     max_states: usize,
+    print_board: bool,
 }
 
 impl Default for Config {
@@ -43,6 +44,7 @@ impl Default for Config {
             max_tuple: 4,
             max_attempts: 100,
             max_states: 1_000_000,
+            print_board: false,
         }
     }
 }
@@ -70,6 +72,9 @@ fn main() -> ExitCode {
                 return ExitCode::FAILURE;
             }
         };
+        if config.print_board {
+            print_board(sample, &board);
+        }
         run_approaches(sample, &config, &board);
     }
 
@@ -101,6 +106,23 @@ fn build_board(config: &Config, rng: &mut Rng64) -> Result<Board, String> {
             rng,
         )
         .map_err(|error| format!("{error:?}")),
+    }
+}
+
+fn print_board(sample: usize, board: &Board) {
+    println!(
+        "# sample={sample} board={}x{} sum={}",
+        board.width(),
+        board.height(),
+        board.cells().iter().map(|cell| *cell as u16).sum::<u16>()
+    );
+    for row in board.cells().chunks(board.width()) {
+        let line = row
+            .iter()
+            .map(|cell| cell.to_string())
+            .collect::<Vec<_>>()
+            .join(" ");
+        println!("# {line}");
     }
 }
 
@@ -196,6 +218,7 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Config, String> {
             "--max-tuple" => config.max_tuple = parse_usize(&mut args, "--max-tuple")?,
             "--max-attempts" => config.max_attempts = parse_usize(&mut args, "--max-attempts")?,
             "--max-states" => config.max_states = parse_usize(&mut args, "--max-states")?,
+            "--print-board" => config.print_board = true,
             "--help" | "-h" => return Err(String::new()),
             value => return Err(format!("unknown argument {value:?}")),
         }
@@ -232,6 +255,6 @@ fn parse_u64(
 
 fn print_usage() {
     eprintln!(
-        "usage: cargo run --release --bin fruitbox_bench -- [--generator fungster|rejection] [--width N] [--height N] [--samples N] [--seed N] [--groups N] [--min-tuple N] [--max-tuple N] [--max-attempts N] [--max-states N]"
+        "usage: cargo run --release --bin fruitbox_bench -- [--generator fungster|rejection] [--width N] [--height N] [--samples N] [--seed N] [--groups N] [--min-tuple N] [--max-tuple N] [--max-attempts N] [--max-states N] [--print-board]"
     );
 }

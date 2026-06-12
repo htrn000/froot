@@ -35,6 +35,16 @@ uv run pytest
 uv run ruff check .
 ```
 
+Run the Rust static-solver benchmark binary:
+
+```bash
+cargo run --release --bin fruitbox_bench -- --generator fungster --width 17 --height 10
+```
+
+The benchmark prints CSV rows for DFS single-solution candidates and the
+memoized exhaustive DP summary. Use `--generator rejection` to sample positive
+boards until the DFS candidate finds an empty-board solution.
+
 ## Docker Compose
 
 Start the API and MySQL:

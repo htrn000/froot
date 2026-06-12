@@ -9,3 +9,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 pyo3 = { version = "0.28.3", features = ["extension-module"] }
+
+[[bin]]
+name = "fruitbox_bench"
+path = "src/bin/fruitbox_bench.rs"

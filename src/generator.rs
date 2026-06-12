@@ -2,6 +2,8 @@ use crate::board::{Board, BoardError, TARGET_SUM};
 use crate::solver::{solve_first_empty, MoveOrdering, SearchError, SolverLimits};
 
 #[derive(Clone, Debug)]
+/// Deterministic RNG for reproducible benchmark boards. It keeps a 256-bit
+/// xorshift state, while accepting a simple `u64` seed for CLI ergonomics.
 pub struct Rng64 {
     state: [u64; 4],
 }
@@ -58,6 +60,9 @@ impl SplitMix64 {
 }
 
 #[derive(Clone, Debug)]
+/// Generates solvable-by-construction boards by tiling each row with small
+/// positive tuples that sum to 10. This models "fungster mode" without using 0
+/// as an initial apple score.
 pub struct FungsterConfig {
     pub width: usize,
     pub height: usize,
@@ -79,6 +84,8 @@ impl Default for FungsterConfig {
 }
 
 #[derive(Clone, Debug)]
+/// Rejection sampling wrapper around `RandomConfig`. It only returns boards
+/// when the selected single-solution solver finds an empty-board witness.
 pub struct RejectionConfig {
     pub width: usize,
     pub height: usize,
@@ -87,6 +94,8 @@ pub struct RejectionConfig {
 }
 
 #[derive(Clone, Debug)]
+/// Official-style random board generation: all cells are positive apples and
+/// the whole board sum is divisible by 10, but solvability is not guaranteed.
 pub struct RandomConfig {
     pub width: usize,
     pub height: usize,

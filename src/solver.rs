@@ -4,6 +4,8 @@ use std::time::{Duration, Instant};
 use crate::board::{Board, Mask, Rectangle, TARGET_SUM};
 
 #[derive(Clone, Copy, Debug)]
+/// Bounds intentionally live outside each solver so benchmark runs can compare
+/// algorithms under the same search budget without changing solver internals.
 pub struct SolverLimits {
     pub max_states: usize,
 }
@@ -17,17 +19,24 @@ impl Default for SolverLimits {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// First-solution DFS is heuristic-sensitive, so ordering is explicit and
+/// benchmarkable instead of being hidden in the recursive search.
 pub enum MoveOrdering {
     LargestScoreFirst,
     SmallestScoreFirst,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+/// Search failures are separate from "unsolvable" results: a board can exceed a
+/// benchmark budget before the solver proves anything about the state graph.
 pub enum SearchError {
     StateLimitExceeded { max_states: usize },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+/// Compressed answer for the "all solutions" static solver. The DP stores this
+/// summary per reachable board mask so callers can query solvability, best
+/// terminal score, and shortest empty-board path without materializing paths.
 pub struct ExhaustiveSummary {
     pub empty_solvable: bool,
     pub max_score: u16,
@@ -39,6 +48,9 @@ pub struct ExhaustiveSummary {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+/// A concrete witness from the fast DFS candidate. This exists separately from
+/// `ExhaustiveSummary` because rejection sampling only needs one empty-board
+/// proof, while exhaustive search needs aggregate facts about every branch.
 pub struct SingleSolution {
     pub empty_solvable: bool,
     pub score: u16,
@@ -49,6 +61,9 @@ pub struct SingleSolution {
 }
 
 #[derive(Clone, Copy, Debug)]
+/// Internal memo payload for one board state. Keeping this smaller than the
+/// public summary avoids recording elapsed time and evaluated-state counts per
+/// node, which belong to the whole run rather than each state.
 struct StateSummary {
     max_score: u16,
     min_empty_steps: Option<u16>,

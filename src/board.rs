@@ -86,6 +86,9 @@ impl Rectangle {
 }
 
 #[derive(Clone, Debug)]
+/// Immutable board metadata shared by all static solvers. Rectangles and digit
+/// masks are precomputed once so recursive searches can represent progress as a
+/// cheap `Mask` and evaluate each candidate move with bit operations.
 pub struct Board {
     width: usize,
     height: usize,

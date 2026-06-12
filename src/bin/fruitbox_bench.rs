@@ -11,6 +11,8 @@ use _native::solver::{
 use clap::{Parser, ValueEnum};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+/// Generation modes are deliberately selected from the CLI so the same solver
+/// binaries can compare constructed, random, and rejection-sampled populations.
 enum GeneratorKind {
     Fungster,
     Random,
@@ -19,6 +21,8 @@ enum GeneratorKind {
 
 #[derive(Clone, Debug, Parser)]
 #[command(about = "Benchmark static Fruitbox solvers on generated boards")]
+/// Clap-owned benchmark configuration. Keeping defaults here makes the binary
+/// the reproducible entry point for timing and state-count comparisons.
 struct Config {
     #[arg(long, value_enum, default_value = "fungster")]
     generator: GeneratorKind,

@@ -1,3 +1,21 @@
+//! Static Fruitbox search over the official 17x10 sum-10 rectangle game.
+//!
+//! The user-facing questions are intentionally query-shaped rather than
+//! sequence-shaped: whether a board can be emptied, the highest score reachable
+//! over all legal play, and the minimum number of moves needed to empty the
+//! board. A naive DFS over rectangles is useful as a witness search, but the
+//! "all solutions" solver should not materialize every move sequence. Instead,
+//! this module treats a board position as a live-cell bitmask and memoizes a
+//! compact summary per reachable state.
+//!
+//! Initial generated boards contain positive apple scores, while recursive
+//! search represents cleared apples by removing bits from the live mask. That
+//! lets rectangle sums stay deterministic and non-negative without mutating the
+//! original board values. The exhaustive DP answers aggregate questions about
+//! the reachable state graph; the first-empty DFS remains separate because
+//! rejection sampling and solver benchmarks often only need one empty-board
+//! witness under a fixed state budget.
+
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 

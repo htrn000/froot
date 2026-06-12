@@ -32,6 +32,7 @@ fn exhaustive_solver_answers_empty_board_queries() {
     assert_eq!(result.max_score, 4);
     assert_eq!(result.min_empty_steps, Some(2));
     assert!(result.empty_solution_count >= 2);
+    assert!(!result.solution_limit_reached);
 }
 
 #[test]
@@ -42,6 +43,23 @@ fn exhaustive_solver_scores_best_terminal_path_when_not_empty_solvable() {
     assert!(!result.empty_solvable);
     assert_eq!(result.max_score, 2);
     assert_eq!(result.min_empty_steps, None);
+}
+
+#[test]
+fn exhaustive_solver_can_stop_after_empty_solution_cap() {
+    let board = Board::new(vec![1, 9, 4, 6], 2).unwrap();
+    let result = solve_exhaustive(
+        &board,
+        SolverLimits {
+            max_states: 1_000,
+            max_empty_solutions: Some(1),
+        },
+    )
+    .unwrap();
+
+    assert!(result.empty_solvable);
+    assert_eq!(result.empty_solution_count, 1);
+    assert!(result.solution_limit_reached);
 }
 
 #[test]
@@ -92,7 +110,10 @@ fn early_empty_search_respects_state_limits() {
     let result = has_empty_solution(
         &board,
         MoveOrdering::LargestScoreFirst,
-        SolverLimits { max_states: 0 },
+        SolverLimits {
+            max_states: 0,
+            max_empty_solutions: None,
+        },
     );
 
     assert_eq!(
@@ -137,7 +158,10 @@ fn rejection_generator_continues_after_state_limited_attempts() {
             width: 17,
             height: 10,
             max_attempts: 2,
-            solver_limits: SolverLimits { max_states: 1 },
+            solver_limits: SolverLimits {
+                max_states: 1,
+                max_empty_solutions: None,
+            },
         },
         &mut rng,
     );

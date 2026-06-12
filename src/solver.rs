@@ -24,14 +24,18 @@ use crate::board::{Board, Mask, Rectangle, TARGET_SUM};
 #[derive(Clone, Copy, Debug)]
 /// Bounds intentionally live outside each solver so benchmark runs can compare
 /// algorithms under the same search budget without changing solver internals.
+/// `max_empty_solutions` is a negotiable exhaustive-search hint: unset means
+/// exact/all solutions, while `Some(n)` allows stopping after n empty paths.
 pub struct SolverLimits {
     pub max_states: usize,
+    pub max_empty_solutions: Option<u128>,
 }
 
 impl Default for SolverLimits {
     fn default() -> Self {
         Self {
             max_states: 1_000_000,
+            max_empty_solutions: None,
         }
     }
 }
@@ -55,6 +59,8 @@ pub enum SearchError {
 /// Compressed answer for the "all solutions" static solver. The DP stores this
 /// summary per reachable board mask so callers can query solvability, best
 /// terminal score, and shortest empty-board path without materializing paths.
+/// If `solution_limit_reached` is true, score/step fields describe the explored
+/// prefix rather than a complete proof over the whole state graph.
 pub struct ExhaustiveSummary {
     pub empty_solvable: bool,
     pub max_score: u16,
@@ -62,6 +68,7 @@ pub struct ExhaustiveSummary {
     pub empty_solution_count: u128,
     pub states_evaluated: usize,
     pub terminal_paths: u128,
+    pub solution_limit_reached: bool,
     pub elapsed: Duration,
 }
 
@@ -99,21 +106,52 @@ struct StateSummary {
     terminal_paths: u128,
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+struct ExhaustiveProgress {
+    states_evaluated: usize,
+    empty_solutions_seen: u128,
+    solution_limit_reached: bool,
+}
+
 pub fn solve_exhaustive(
     board: &Board,
     limits: SolverLimits,
 ) -> Result<ExhaustiveSummary, SearchError> {
     let started = Instant::now();
     let mut memo = HashMap::new();
-    let summary = solve_state(board, board.initial_state(), &mut memo, limits)?;
+    let mut progress = ExhaustiveProgress::default();
+    let use_memo = limits.max_empty_solutions.is_none();
+
+    if solution_limit_reached(0, limits) {
+        return Ok(ExhaustiveSummary {
+            empty_solvable: false,
+            max_score: 0,
+            min_empty_steps: None,
+            empty_solution_count: 0,
+            states_evaluated: 0,
+            terminal_paths: 0,
+            solution_limit_reached: true,
+            elapsed: started.elapsed(),
+        });
+    }
+
+    let summary = solve_state(
+        board,
+        board.initial_state(),
+        &mut memo,
+        &mut progress,
+        limits,
+        use_memo,
+    )?;
 
     Ok(ExhaustiveSummary {
         empty_solvable: summary.min_empty_steps.is_some(),
         max_score: summary.max_score,
         min_empty_steps: summary.min_empty_steps,
         empty_solution_count: summary.empty_solution_count,
-        states_evaluated: memo.len(),
+        states_evaluated: progress.states_evaluated,
         terminal_paths: summary.terminal_paths,
+        solution_limit_reached: progress.solution_limit_reached,
         elapsed: started.elapsed(),
     })
 }
@@ -184,24 +222,35 @@ fn solve_state(
     board: &Board,
     state: Mask,
     memo: &mut HashMap<Mask, StateSummary>,
+    progress: &mut ExhaustiveProgress,
     limits: SolverLimits,
+    use_memo: bool,
 ) -> Result<StateSummary, SearchError> {
-    if let Some(summary) = memo.get(&state) {
-        return Ok(*summary);
+    if use_memo {
+        if let Some(summary) = memo.get(&state) {
+            return Ok(*summary);
+        }
     }
-    if memo.len() >= limits.max_states {
+    if progress.states_evaluated >= limits.max_states {
         return Err(SearchError::StateLimitExceeded {
             max_states: limits.max_states,
         });
     }
+    progress.states_evaluated += 1;
     if state.is_empty() {
+        progress.empty_solutions_seen = progress.empty_solutions_seen.saturating_add(1);
+        if solution_limit_reached(progress.empty_solutions_seen, limits) {
+            progress.solution_limit_reached = true;
+        }
         let summary = StateSummary {
             max_score: 0,
             min_empty_steps: Some(0),
             empty_solution_count: 1,
             terminal_paths: 1,
         };
-        memo.insert(state, summary);
+        if use_memo {
+            memo.insert(state, summary);
+        }
         return Ok(summary);
     }
 
@@ -212,9 +261,12 @@ fn solve_state(
     let mut found_move = false;
 
     for rectangle in board.valid_moves(state, TARGET_SUM) {
+        if progress.solution_limit_reached {
+            break;
+        }
         found_move = true;
         let next = board.apply(state, rectangle);
-        let child = solve_state(board, next, memo, limits)?;
+        let child = solve_state(board, next, memo, progress, limits, use_memo)?;
         let move_score = board.live_score(state, rectangle);
         max_score = max_score.max(move_score.saturating_add(child.max_score));
 
@@ -238,8 +290,16 @@ fn solve_state(
         empty_solution_count,
         terminal_paths,
     };
-    memo.insert(state, summary);
+    if use_memo {
+        memo.insert(state, summary);
+    }
     Ok(summary)
+}
+
+fn solution_limit_reached(empty_solutions_seen: u128, limits: SolverLimits) -> bool {
+    limits
+        .max_empty_solutions
+        .is_some_and(|limit| empty_solutions_seen >= limit)
 }
 
 fn dfs_has_empty(

@@ -48,7 +48,9 @@ sampling until the DFS candidate finds an empty-board solution. Prefer official
 17x10 grids for benchmark evidence; smaller grids are only for fast debugging
 or solver research iteration. The fungster generator uses the strip-hack
 variant by default; pass `--fungster-axis row` or `--fungster-axis column` to
-choose 1-height or 1-width sum-10 rectangles.
+choose 1-height or 1-width sum-10 rectangles. Use
+`--max-empty-solutions <n>` to let exhaustive DP stop after seeing `n`
+empty-board solutions and mark the CSV row as partial.
 
 ## Docker Compose
 

@@ -54,6 +54,9 @@ struct Config {
     max_attempts: usize,
     #[arg(long, default_value_t = 1_000_000)]
     max_states: usize,
+    /// Stop exhaustive DP after this many empty-board solutions are encountered.
+    #[arg(long)]
+    max_empty_solutions: Option<u128>,
     /// Print sampled boards as text grids. By default this is sampling-only and
     /// does not run solvers unless `--run-solvers` is also set.
     #[arg(long)]
@@ -69,7 +72,7 @@ fn main() -> ExitCode {
     let mut rng = Rng64::new(config.seed);
     if should_run_solvers(&config) {
         println!(
-            "sample,generator,approach,width,height,total_sum,solvable,max_score,empty_steps,states,terminal_paths,empty_solutions,elapsed_us,status"
+            "sample,generator,approach,width,height,total_sum,solvable,max_score,empty_steps,states,terminal_paths,empty_solutions,solution_limit_reached,elapsed_us,status"
         );
     }
 
@@ -125,6 +128,7 @@ fn build_board(config: &Config, rng: &mut Rng64) -> Result<Board, String> {
                 max_attempts: config.max_attempts,
                 solver_limits: SolverLimits {
                     max_states: config.max_states,
+                    max_empty_solutions: config.max_empty_solutions,
                 },
             },
             rng,
@@ -155,6 +159,7 @@ fn run_approaches(sample: usize, config: &Config, board: &Board) {
     let total_sum: u16 = board.cells().iter().map(|cell| *cell as u16).sum();
     let limits = SolverLimits {
         max_states: config.max_states,
+        max_empty_solutions: config.max_empty_solutions,
     };
 
     for (name, ordering) in [
@@ -162,33 +167,38 @@ fn run_approaches(sample: usize, config: &Config, board: &Board) {
         ("dfs_first_smallest", MoveOrdering::SmallestScoreFirst),
     ] {
         match solve_first_empty(board, ordering, limits) {
-            Ok(result) => println!(
-                "{sample},{generator},{name},{},{},{total_sum},{},{},{},{},,,{},ok",
-                board.width(),
-                board.height(),
-                result.empty_solvable,
-                result.score,
-                option_u16(result.steps),
-                result.states_evaluated,
-                result.elapsed.as_micros(),
-            ),
+            Ok(result) => {
+                let elapsed_us = result.elapsed.as_micros();
+                println!(
+                    "{sample},{generator},{name},{},{},{total_sum},{},{},{},{},,,,{elapsed_us},ok",
+                    board.width(),
+                    board.height(),
+                    result.empty_solvable,
+                    result.score,
+                    option_u16(result.steps),
+                    result.states_evaluated,
+                )
+            }
             Err(error) => print_search_error(sample, generator, name, board, total_sum, error),
         }
     }
 
     match solve_exhaustive(board, limits) {
-        Ok(result) => println!(
-            "{sample},{generator},dp_exhaustive,{},{},{total_sum},{},{},{},{},{},{},{},ok",
-            board.width(),
-            board.height(),
-            result.empty_solvable,
-            result.max_score,
-            option_u16(result.min_empty_steps),
-            result.states_evaluated,
-            result.terminal_paths,
-            result.empty_solution_count,
-            result.elapsed.as_micros(),
-        ),
+        Ok(result) => {
+            let elapsed_us = result.elapsed.as_micros();
+            println!(
+                "{sample},{generator},dp_exhaustive,{},{},{total_sum},{},{},{},{},{},{},{},{elapsed_us},ok",
+                board.width(),
+                board.height(),
+                result.empty_solvable,
+                result.max_score,
+                option_u16(result.min_empty_steps),
+                result.states_evaluated,
+                result.terminal_paths,
+                result.empty_solution_count,
+                result.solution_limit_reached,
+            )
+        }
         Err(error) => {
             print_search_error(sample, generator, "dp_exhaustive", board, total_sum, error)
         }
@@ -207,7 +217,7 @@ fn print_search_error(
         SearchError::StateLimitExceeded { max_states } => format!("state_limit_{max_states}"),
     };
     println!(
-        "{sample},{generator},{approach},{},{},{total_sum},false,0,,0,,,,{status}",
+        "{sample},{generator},{approach},{},{},{total_sum},false,0,,0,,,,,{status}",
         board.width(),
         board.height(),
     );

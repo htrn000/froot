@@ -22,17 +22,39 @@ environment:
 uv sync
 ```
 
-Run the API:
+Install and run the frontend dev server:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+In another terminal, run the API:
 
 ```bash
 uv run uvicorn fruitbox_api.app:create_app --factory --reload
 ```
+
+Open <http://localhost:5173> for the game UI. Vite proxies `/api` and `/health`
+to the FastAPI process on port 8000.
+
+Build the frontend for production serving from FastAPI:
+
+```bash
+cd frontend
+npm run build
+uv run uvicorn fruitbox_api.app:create_app --factory --reload
+```
+
+Open <http://localhost:8000> after building the frontend.
 
 Run tests and linting:
 
 ```bash
 uv run pytest
 uv run ruff check .
+cd frontend && npm test
 ```
 
 ## Docker Compose
@@ -59,6 +81,21 @@ curl -X POST http://localhost:8000/api/v1/solver/static-move \
   -H 'content-type: application/json' \
   -d '{"width":3,"height":2,"cells":[1,2,4,3,4,6]}'
 ```
+
+## Frontend
+
+The browser UI lives in `frontend/` and uses:
+
+- Vite + TypeScript for the app shell;
+- HTML/CSS grid cells for the board, not canvas;
+- a pure TypeScript game engine under `frontend/src/game/` for headless play,
+  bot turns, and offline validation;
+- optional API calls for health checks and server-backed solver hints.
+
+DOM cells are the default because rectangle drag-selection, accessibility, and
+headless testing are much simpler than canvas hit-testing. The engine is kept
+separate from rendering so the same rules can later move into the Rust/Wasm
+core without rewriting the UI.
 
 ## Architecture guidance
 

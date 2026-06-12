@@ -1,3 +1,13 @@
+FROM node:22-bookworm-slim AS frontend
+
+WORKDIR /frontend
+
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+
+COPY frontend/ ./
+RUN npm run build
+
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm
 
 WORKDIR /app
@@ -12,6 +22,7 @@ ENV UV_LINK_MODE=copy
 COPY pyproject.toml uv.lock Cargo.toml Cargo.lock README.md ./
 COPY python ./python
 COPY src ./src
+COPY --from=frontend /frontend/dist ./frontend/dist
 
 RUN uv sync --frozen
 

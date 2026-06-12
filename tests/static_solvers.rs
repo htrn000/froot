@@ -1,7 +1,7 @@
 use _native::board::{Board, TARGET_SUM};
 use _native::generator::{
     generate_fungster_board, generate_random_board, generate_rejection_solvable_board,
-    FungsterConfig, GeneratorError, RandomConfig, RejectionConfig, Rng64,
+    FungsterAxis, FungsterConfig, GeneratorError, RandomConfig, RejectionConfig, Rng64,
 };
 use _native::solver::{solve_exhaustive, solve_first_empty, MoveOrdering, SolverLimits};
 
@@ -51,6 +51,7 @@ fn dfs_solver_finds_fungster_board_solution() {
             groups: 4,
             min_tuple: 2,
             max_tuple: 4,
+            axis: FungsterAxis::Row,
         },
         &mut rng,
     )
@@ -59,6 +60,34 @@ fn dfs_solver_finds_fungster_board_solution() {
     let solution = solve_first_empty(
         &board,
         MoveOrdering::LargestScoreFirst,
+        SolverLimits::default(),
+    )
+    .unwrap();
+
+    assert_eq!(total_sum % TARGET_SUM, 0);
+    assert!(board.cells().iter().all(|cell| (1..=9).contains(cell)));
+    assert!(solution.empty_solvable);
+}
+
+#[test]
+fn dfs_solver_finds_column_fungster_board_solution() {
+    let mut rng = Rng64::new(17);
+    let board = generate_fungster_board(
+        &FungsterConfig {
+            width: 6,
+            height: 4,
+            groups: 4,
+            min_tuple: 2,
+            max_tuple: 4,
+            axis: FungsterAxis::Column,
+        },
+        &mut rng,
+    )
+    .unwrap();
+    let total_sum: u16 = board.cells().iter().map(|cell| *cell as u16).sum();
+    let solution = solve_first_empty(
+        &board,
+        MoveOrdering::SmallestScoreFirst,
         SolverLimits::default(),
     )
     .unwrap();

@@ -69,6 +69,16 @@ pub struct FungsterConfig {
     pub groups: usize,
     pub min_tuple: usize,
     pub max_tuple: usize,
+    pub axis: FungsterAxis,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// Strip-hack variant of fungster generation. Each generated tuple is still a
+/// rectangular sum-10 move, but the recursion is simplified to either 1-height
+/// row strips or 1-width column strips instead of arbitrary remaining regions.
+pub enum FungsterAxis {
+    Row,
+    Column,
 }
 
 impl Default for FungsterConfig {
@@ -79,6 +89,7 @@ impl Default for FungsterConfig {
             groups: 32,
             min_tuple: 2,
             max_tuple: 4,
+            axis: FungsterAxis::Row,
         }
     }
 }
@@ -159,19 +170,9 @@ pub fn generate_fungster_board(
     }
 
     let mut cells = vec![0_u8; config.width * config.height];
-    for y in 0..config.height {
-        let segments = partition_line(config.width, config.min_tuple, config.max_tuple, rng)
-            .ok_or(GeneratorError::InvalidConfig(
-                "width cannot be tiled by the configured tuple bounds",
-            ))?;
-        let mut left = 0;
-        for segment_len in segments {
-            let tuple = positive_tuple_sum(TARGET_SUM as u8, segment_len, rng);
-            for (offset, value) in tuple.into_iter().enumerate() {
-                cells[y * config.width + left + offset] = value;
-            }
-            left += segment_len;
-        }
+    match config.axis {
+        FungsterAxis::Row => fill_row_strips(config, rng, &mut cells)?,
+        FungsterAxis::Column => fill_column_strips(config, rng, &mut cells)?,
     }
 
     Board::new(cells, config.width).map_err(GeneratorError::from)
@@ -271,6 +272,50 @@ fn partition_line(
         remaining -= len;
     }
     Some(segments)
+}
+
+fn fill_row_strips(
+    config: &FungsterConfig,
+    rng: &mut Rng64,
+    cells: &mut [u8],
+) -> Result<(), GeneratorError> {
+    for y in 0..config.height {
+        let segments = partition_line(config.width, config.min_tuple, config.max_tuple, rng)
+            .ok_or(GeneratorError::InvalidConfig(
+                "width cannot be tiled by the configured tuple bounds",
+            ))?;
+        let mut left = 0;
+        for segment_len in segments {
+            let tuple = positive_tuple_sum(TARGET_SUM as u8, segment_len, rng);
+            for (offset, value) in tuple.into_iter().enumerate() {
+                cells[y * config.width + left + offset] = value;
+            }
+            left += segment_len;
+        }
+    }
+    Ok(())
+}
+
+fn fill_column_strips(
+    config: &FungsterConfig,
+    rng: &mut Rng64,
+    cells: &mut [u8],
+) -> Result<(), GeneratorError> {
+    for x in 0..config.width {
+        let segments = partition_line(config.height, config.min_tuple, config.max_tuple, rng)
+            .ok_or(GeneratorError::InvalidConfig(
+                "height cannot be tiled by the configured tuple bounds",
+            ))?;
+        let mut top = 0;
+        for segment_len in segments {
+            let tuple = positive_tuple_sum(TARGET_SUM as u8, segment_len, rng);
+            for (offset, value) in tuple.into_iter().enumerate() {
+                cells[(top + offset) * config.width + x] = value;
+            }
+            top += segment_len;
+        }
+    }
+    Ok(())
 }
 
 fn positive_tuple_sum(target: u8, len: usize, rng: &mut Rng64) -> Vec<u8> {

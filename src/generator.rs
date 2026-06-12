@@ -3,26 +3,57 @@ use crate::solver::{solve_first_empty, MoveOrdering, SearchError, SolverLimits};
 
 #[derive(Clone, Debug)]
 pub struct Rng64 {
-    state: u64,
+    state: [u64; 4],
 }
 
 impl Rng64 {
     pub fn new(seed: u64) -> Self {
-        Self { state: seed.max(1) }
+        let mut splitmix = SplitMix64::new(seed);
+        let state = [
+            splitmix.next_u64(),
+            splitmix.next_u64(),
+            splitmix.next_u64(),
+            splitmix.next_u64(),
+        ];
+        Self { state }
     }
 
     pub fn next_u64(&mut self) -> u64 {
-        let mut x = self.state;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.state = x;
-        x
+        let result = self.state[0].wrapping_add(self.state[3]);
+        let t = self.state[1] << 17;
+
+        self.state[2] ^= self.state[0];
+        self.state[3] ^= self.state[1];
+        self.state[1] ^= self.state[2];
+        self.state[0] ^= self.state[3];
+        self.state[2] ^= t;
+        self.state[3] = self.state[3].rotate_left(45);
+
+        result
     }
 
     pub fn range(&mut self, start: usize, end: usize) -> usize {
         debug_assert!(start < end);
         start + (self.next_u64() as usize % (end - start))
+    }
+}
+
+#[derive(Clone, Debug)]
+struct SplitMix64 {
+    state: u64,
+}
+
+impl SplitMix64 {
+    fn new(seed: u64) -> Self {
+        Self { state: seed }
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        self.state = self.state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut value = self.state;
+        value = (value ^ (value >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        value = (value ^ (value >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        value ^ (value >> 31)
     }
 }
 

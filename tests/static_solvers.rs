@@ -6,6 +6,21 @@ use _native::generator::{
 use _native::solver::{solve_exhaustive, solve_first_empty, MoveOrdering, SolverLimits};
 
 #[test]
+fn rng_is_deterministic_and_uses_full_seeded_state() {
+    let mut left = Rng64::new(42);
+    let mut right = Rng64::new(42);
+    let mut different = Rng64::new(43);
+
+    let left_values = (0..8).map(|_| left.next_u64()).collect::<Vec<_>>();
+    let right_values = (0..8).map(|_| right.next_u64()).collect::<Vec<_>>();
+    let different_values = (0..8).map(|_| different.next_u64()).collect::<Vec<_>>();
+
+    assert_eq!(left_values, right_values);
+    assert_ne!(left_values, different_values);
+    assert!(left_values.iter().any(|value| *value != 0));
+}
+
+#[test]
 fn exhaustive_solver_answers_empty_board_queries() {
     let board = Board::new(vec![1, 9, 4, 6], 2).unwrap();
     let result = solve_exhaustive(&board, SolverLimits::default()).unwrap();

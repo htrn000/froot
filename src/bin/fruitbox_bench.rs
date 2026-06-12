@@ -1,4 +1,3 @@
-use std::env;
 use std::process::ExitCode;
 
 use _native::board::Board;
@@ -9,56 +8,44 @@ use _native::generator::{
 use _native::solver::{
     solve_exhaustive, solve_first_empty, MoveOrdering, SearchError, SolverLimits,
 };
+use clap::{Parser, ValueEnum};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 enum GeneratorKind {
     Fungster,
     Random,
     Rejection,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Parser)]
+#[command(about = "Benchmark static Fruitbox solvers on generated boards")]
 struct Config {
+    #[arg(long, value_enum, default_value = "fungster")]
     generator: GeneratorKind,
+    #[arg(long, default_value_t = 17)]
     width: usize,
+    #[arg(long, default_value_t = 10)]
     height: usize,
+    #[arg(long, default_value_t = 3)]
     samples: usize,
+    #[arg(long, default_value_t = 1)]
     seed: u64,
+    #[arg(long, default_value_t = 32)]
     groups: usize,
+    #[arg(long, default_value_t = 2)]
     min_tuple: usize,
+    #[arg(long, default_value_t = 4)]
     max_tuple: usize,
+    #[arg(long, default_value_t = 100)]
     max_attempts: usize,
+    #[arg(long, default_value_t = 1_000_000)]
     max_states: usize,
+    #[arg(long)]
     print_board: bool,
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            generator: GeneratorKind::Fungster,
-            width: 17,
-            height: 10,
-            samples: 3,
-            seed: 1,
-            groups: 32,
-            min_tuple: 2,
-            max_tuple: 4,
-            max_attempts: 100,
-            max_states: 1_000_000,
-            print_board: false,
-        }
-    }
-}
-
 fn main() -> ExitCode {
-    let config = match parse_args(env::args().skip(1)) {
-        Ok(config) => config,
-        Err(error) => {
-            eprintln!("{error}");
-            print_usage();
-            return ExitCode::FAILURE;
-        }
-    };
+    let config = Config::parse();
 
     let mut rng = Rng64::new(config.seed);
     println!(
@@ -136,11 +123,7 @@ fn print_board(sample: usize, board: &Board) {
 }
 
 fn run_approaches(sample: usize, config: &Config, board: &Board) {
-    let generator = match config.generator {
-        GeneratorKind::Fungster => "fungster",
-        GeneratorKind::Random => "random",
-        GeneratorKind::Rejection => "rejection",
-    };
+    let generator = generator_name(config.generator);
     let total_sum: u16 = board.cells().iter().map(|cell| *cell as u16).sum();
     let limits = SolverLimits {
         max_states: config.max_states,
@@ -206,66 +189,10 @@ fn option_u16(value: Option<u16>) -> String {
     value.map_or_else(String::new, |value| value.to_string())
 }
 
-fn parse_args(args: impl Iterator<Item = String>) -> Result<Config, String> {
-    let mut config = Config::default();
-    let mut args = args.peekable();
-
-    while let Some(arg) = args.next() {
-        match arg.as_str() {
-            "--generator" => {
-                config.generator = match take_value(&mut args, "--generator")?.as_str() {
-                    "fungster" => GeneratorKind::Fungster,
-                    "random" => GeneratorKind::Random,
-                    "rejection" => GeneratorKind::Rejection,
-                    value => return Err(format!("unknown generator {value:?}")),
-                };
-            }
-            "--width" => config.width = parse_usize(&mut args, "--width")?,
-            "--height" => config.height = parse_usize(&mut args, "--height")?,
-            "--samples" => config.samples = parse_usize(&mut args, "--samples")?,
-            "--seed" => config.seed = parse_u64(&mut args, "--seed")?,
-            "--groups" => config.groups = parse_usize(&mut args, "--groups")?,
-            "--min-tuple" => config.min_tuple = parse_usize(&mut args, "--min-tuple")?,
-            "--max-tuple" => config.max_tuple = parse_usize(&mut args, "--max-tuple")?,
-            "--max-attempts" => config.max_attempts = parse_usize(&mut args, "--max-attempts")?,
-            "--max-states" => config.max_states = parse_usize(&mut args, "--max-states")?,
-            "--print-board" => config.print_board = true,
-            "--help" | "-h" => return Err(String::new()),
-            value => return Err(format!("unknown argument {value:?}")),
-        }
+fn generator_name(generator: GeneratorKind) -> &'static str {
+    match generator {
+        GeneratorKind::Fungster => "fungster",
+        GeneratorKind::Random => "random",
+        GeneratorKind::Rejection => "rejection",
     }
-
-    Ok(config)
-}
-
-fn take_value(
-    args: &mut std::iter::Peekable<impl Iterator<Item = String>>,
-    flag: &str,
-) -> Result<String, String> {
-    args.next()
-        .ok_or_else(|| format!("{flag} requires a value"))
-}
-
-fn parse_usize(
-    args: &mut std::iter::Peekable<impl Iterator<Item = String>>,
-    flag: &str,
-) -> Result<usize, String> {
-    take_value(args, flag)?
-        .parse()
-        .map_err(|_| format!("{flag} requires a positive integer"))
-}
-
-fn parse_u64(
-    args: &mut std::iter::Peekable<impl Iterator<Item = String>>,
-    flag: &str,
-) -> Result<u64, String> {
-    take_value(args, flag)?
-        .parse()
-        .map_err(|_| format!("{flag} requires a positive integer"))
-}
-
-fn print_usage() {
-    eprintln!(
-        "usage: cargo run --release --bin fruitbox_bench -- [--generator fungster|random|rejection] [--width N] [--height N] [--samples N] [--seed N] [--groups N] [--min-tuple N] [--max-tuple N] [--max-attempts N] [--max-states N] [--print-board]"
-    );
 }

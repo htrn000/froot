@@ -8,6 +8,7 @@ name = "_native"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+clap = { version = "4.5.50", features = ["derive"] }
 pyo3 = { version = "0.28.3", features = ["extension-module"] }
 
 [[bin]]

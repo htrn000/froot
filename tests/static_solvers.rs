@@ -1,7 +1,8 @@
 use _native::board::{Board, TARGET_SUM};
 use _native::generator::{
     generate_fungster_board, generate_random_board, generate_rejection_solvable_board,
-    FungsterConfig, FungsterPartitionStrategy, GeneratorError, RandomConfig, RejectionConfig, Rng64,
+    FungsterConfig, FungsterPartitionStrategy, GeneratorError, RandomConfig, RejectionConfig,
+    Rng64,
 };
 use _native::solver::{
     has_empty_solution, solve_exhaustive, solve_first_empty, MoveOrdering, SearchError,
@@ -153,7 +154,7 @@ fn soft_fuzz_generation_parameters_on_official_size() {
                 attempts,
                 min_tuple,
                 max_tuple,
-            partition_strategy: FungsterPartitionStrategy::StraightStrips,
+                partition_strategy: FungsterPartitionStrategy::StraightStrips,
             },
             &mut rng,
         )

@@ -169,14 +169,23 @@ fn run_approaches(sample: usize, config: &Config, board: &Board) {
         max_states: config.max_states,
         max_empty_solutions: config.max_empty_solutions,
     };
+    trace_solver_batch_start(sample, generator, board, total_sum, limits);
 
     for (name, ordering) in [
         ("dfs_first_largest", MoveOrdering::LargestScoreFirst),
         ("dfs_first_smallest", MoveOrdering::SmallestScoreFirst),
     ] {
+        eprintln!("[fruitbox_bench] sample={sample} approach={name} event=start");
         match solve_first_empty(board, ordering, limits) {
             Ok(result) => {
                 let elapsed_us = result.elapsed.as_micros();
+                eprintln!(
+                    "[fruitbox_bench] sample={sample} approach={name} event=finish status=ok solvable={} score={} steps={} states={} elapsed_us={elapsed_us}",
+                    result.empty_solvable,
+                    result.score,
+                    option_u16(result.steps),
+                    result.states_evaluated,
+                );
                 println!(
                     "{sample},{generator},{name},{},{},{total_sum},{},{},{},{},,,,{elapsed_us},ok",
                     board.width(),
@@ -187,13 +196,27 @@ fn run_approaches(sample: usize, config: &Config, board: &Board) {
                     result.states_evaluated,
                 )
             }
-            Err(error) => print_search_error(sample, generator, name, board, total_sum, error),
+            Err(error) => {
+                trace_search_error(sample, name, &error);
+                print_search_error(sample, generator, name, board, total_sum, error);
+            }
         }
     }
 
+    eprintln!("[fruitbox_bench] sample={sample} approach=dp_exhaustive event=start");
     match solve_exhaustive(board, limits) {
         Ok(result) => {
             let elapsed_us = result.elapsed.as_micros();
+            eprintln!(
+                "[fruitbox_bench] sample={sample} approach=dp_exhaustive event=finish status=ok solvable={} max_score={} min_empty_steps={} states={} terminal_paths={} empty_solutions={} solution_limit_reached={} elapsed_us={elapsed_us}",
+                result.empty_solvable,
+                result.max_score,
+                option_u16(result.min_empty_steps),
+                result.states_evaluated,
+                result.terminal_paths,
+                result.empty_solution_count,
+                result.solution_limit_reached,
+            );
             println!(
                 "{sample},{generator},dp_exhaustive,{},{},{total_sum},{},{},{},{},{},{},{},{elapsed_us},ok",
                 board.width(),
@@ -208,8 +231,33 @@ fn run_approaches(sample: usize, config: &Config, board: &Board) {
             )
         }
         Err(error) => {
+            trace_search_error(sample, "dp_exhaustive", &error);
             print_search_error(sample, generator, "dp_exhaustive", board, total_sum, error)
         }
+    }
+}
+
+fn trace_solver_batch_start(
+    sample: usize,
+    generator: &str,
+    board: &Board,
+    total_sum: u16,
+    limits: SolverLimits,
+) {
+    eprintln!(
+        "[fruitbox_bench] sample={sample} event=solver_batch_start generator={generator} board={}x{} total_sum={total_sum} max_states={} max_empty_solutions={}",
+        board.width(),
+        board.height(),
+        limits.max_states,
+        option_u128(limits.max_empty_solutions),
+    );
+}
+
+fn trace_search_error(sample: usize, approach: &str, error: &SearchError) {
+    match error {
+        SearchError::StateLimitExceeded { max_states } => eprintln!(
+            "[fruitbox_bench] sample={sample} approach={approach} event=finish status=state_limit max_states={max_states}"
+        ),
     }
 }
 
@@ -233,6 +281,10 @@ fn print_search_error(
 
 fn option_u16(value: Option<u16>) -> String {
     value.map_or_else(String::new, |value| value.to_string())
+}
+
+fn option_u128(value: Option<u128>) -> String {
+    value.map_or_else(|| "none".to_string(), |value| value.to_string())
 }
 
 fn generator_name(generator: GeneratorKind) -> &'static str {

@@ -354,7 +354,9 @@ fn partition_line(
     let mut segments = Vec::new();
     while remaining > 0 {
         let mut candidates = (min_tuple..=max_tuple)
-            .filter(|len| remaining >= *len && can_partition(remaining - *len, min_tuple, max_tuple))
+            .filter(|len| {
+                remaining >= *len && can_partition(remaining - *len, min_tuple, max_tuple)
+            })
             .collect::<Vec<_>>();
         shuffle(rng, &mut candidates);
         let len = candidates[0];

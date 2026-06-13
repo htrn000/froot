@@ -3,7 +3,7 @@ use std::process::ExitCode;
 use _native::board::Board;
 use _native::generator::{
     generate_fungster_board, generate_random_board, generate_rejection_solvable_board,
-    FungsterConfig, RandomConfig, RejectionConfig, Rng64,
+    FungsterConfig, FungsterPartitionStrategy, RandomConfig, RejectionConfig, Rng64,
 };
 use _native::solver::{
     solve_exhaustive, solve_first_empty, MoveOrdering, SearchError, SolverLimits,
@@ -17,6 +17,12 @@ enum GeneratorKind {
     Fungster,
     Random,
     Rejection,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum FungsterPartitionArg {
+    StraightStrips,
+    RandomBacktracking,
 }
 
 #[derive(Clone, Debug, Parser)]
@@ -37,6 +43,8 @@ struct Config {
     /// Full-board random tiling restarts for fungster generation.
     #[arg(long, alias = "groups", default_value_t = 32)]
     fungster_attempts: usize,
+    #[arg(long, value_enum, default_value = "straight-strips")]
+    fungster_partition: FungsterPartitionArg,
     #[arg(long, default_value_t = 2)]
     min_tuple: usize,
     #[arg(long, default_value_t = 4)]
@@ -99,6 +107,7 @@ fn build_board(config: &Config, rng: &mut Rng64) -> Result<Board, String> {
                 attempts: config.fungster_attempts,
                 min_tuple: config.min_tuple,
                 max_tuple: config.max_tuple,
+                partition_strategy: config.fungster_partition.into(),
             },
             rng,
         )
@@ -124,6 +133,15 @@ fn build_board(config: &Config, rng: &mut Rng64) -> Result<Board, String> {
             rng,
         )
         .map_err(|error| format!("{error:?}")),
+    }
+}
+
+impl From<FungsterPartitionArg> for FungsterPartitionStrategy {
+    fn from(strategy: FungsterPartitionArg) -> Self {
+        match strategy {
+            FungsterPartitionArg::StraightStrips => Self::StraightStrips,
+            FungsterPartitionArg::RandomBacktracking => Self::RandomBacktracking,
+        }
     }
 }
 

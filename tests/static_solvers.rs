@@ -1,7 +1,7 @@
 use _native::board::{Board, TARGET_SUM};
 use _native::generator::{
     generate_fungster_board, generate_random_board, generate_rejection_solvable_board,
-    FungsterConfig, GeneratorError, RandomConfig, RejectionConfig, Rng64,
+    FungsterConfig, FungsterPartitionStrategy, GeneratorError, RandomConfig, RejectionConfig, Rng64,
 };
 use _native::solver::{
     has_empty_solution, solve_exhaustive, solve_first_empty, MoveOrdering, SearchError,
@@ -153,6 +153,25 @@ fn soft_fuzz_generation_parameters_on_official_size() {
                 attempts,
                 min_tuple,
                 max_tuple,
+            partition_strategy: FungsterPartitionStrategy::StraightStrips,
+            },
+            &mut rng,
+        )
+        .unwrap();
+
+        assert_official_positive_board(&board);
+    }
+
+    for (seed, min_tuple, max_tuple, attempts) in [(43, 2, 4, 4), (47, 2, 5, 8)] {
+        let mut rng = Rng64::new(seed);
+        let board = generate_fungster_board(
+            &FungsterConfig {
+                width: OFFICIAL_WIDTH,
+                height: OFFICIAL_HEIGHT,
+                attempts,
+                min_tuple,
+                max_tuple,
+                partition_strategy: FungsterPartitionStrategy::RandomBacktracking,
             },
             &mut rng,
         )
@@ -218,6 +237,7 @@ fn dfs_solver_finds_fungster_board_solution() {
             attempts: 4,
             min_tuple: 2,
             max_tuple: 4,
+            partition_strategy: FungsterPartitionStrategy::RandomBacktracking,
         },
         &mut rng,
     )
@@ -277,6 +297,7 @@ fn dfs_solver_finds_another_fungster_board_solution() {
             attempts: 4,
             min_tuple: 2,
             max_tuple: 4,
+            partition_strategy: FungsterPartitionStrategy::RandomBacktracking,
         },
         &mut rng,
     )

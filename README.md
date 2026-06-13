@@ -46,10 +46,12 @@ memoized exhaustive DP summary. Use `--generator random` for positive 17x10
 boards whose total sum is divisible by 10, or `--generator rejection` to keep
 sampling until the DFS candidate finds an empty-board solution. Prefer official
 17x10 grids for benchmark evidence; smaller grids are only for fast debugging
-or solver research iteration. The fungster generator randomly tiles the board
-with valid rectangular sum-10 moves and restarts if the random tiling gets
-stuck. Use `--max-empty-solutions <n>` to let exhaustive DP stop after seeing
-`n` empty-board solutions and mark the CSV row as partial.
+or solver research iteration. The fungster generator supports injectable
+partition strategies: `--fungster-partition straight-strips` uses a simple
+mixed horizontal/vertical strip partition, while `random-backtracking` randomly
+tiles valid rectangular sum-10 moves and restarts if it gets stuck. Use
+`--max-empty-solutions <n>` to let exhaustive DP stop after seeing `n`
+empty-board solutions and mark the CSV row as partial.
 
 ## Docker Compose
 

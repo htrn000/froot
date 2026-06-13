@@ -60,16 +60,22 @@ impl SplitMix64 {
 }
 
 #[derive(Clone, Debug)]
-/// Generates solvable-by-construction boards by randomly tiling the full board
-/// with small rectangular sum-10 moves. If a random tiling gets stuck, the
-/// generator backtracks and eventually restarts rather than applying a cleanup
-/// rule for uneven leftovers.
+/// Generates solvable-by-construction boards by partitioning the full board
+/// into rectangular sum-10 moves. The partition strategy is injectable so
+/// experiments can compare a simple strip partition against random backtracking.
 pub struct FungsterConfig {
     pub width: usize,
     pub height: usize,
     pub attempts: usize,
     pub min_tuple: usize,
     pub max_tuple: usize,
+    pub partition_strategy: FungsterPartitionStrategy,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FungsterPartitionStrategy {
+    StraightStrips,
+    RandomBacktracking,
 }
 
 impl Default for FungsterConfig {
@@ -80,6 +86,7 @@ impl Default for FungsterConfig {
             attempts: 32,
             min_tuple: 2,
             max_tuple: 4,
+            partition_strategy: FungsterPartitionStrategy::StraightStrips,
         }
     }
 }
@@ -160,16 +167,25 @@ pub fn generate_fungster_board(
         ));
     }
 
-    for _ in 0..config.attempts.max(1) {
-        let mut cells = vec![0_u8; config.width * config.height];
-        if tile_random_rectangles(config, rng, &mut cells) {
-            return Board::new(cells, config.width).map_err(GeneratorError::from);
+    match config.partition_strategy {
+        FungsterPartitionStrategy::StraightStrips => {
+            let mut cells = vec![0_u8; config.width * config.height];
+            fill_straight_strips(config, rng, &mut cells)?;
+            Board::new(cells, config.width).map_err(GeneratorError::from)
+        }
+        FungsterPartitionStrategy::RandomBacktracking => {
+            for _ in 0..config.attempts.max(1) {
+                let mut cells = vec![0_u8; config.width * config.height];
+                if tile_random_rectangles(config, rng, &mut cells) {
+                    return Board::new(cells, config.width).map_err(GeneratorError::from);
+                }
+            }
+
+            Err(GeneratorError::ExhaustedAttempts {
+                attempts: config.attempts.max(1),
+            })
         }
     }
-
-    Err(GeneratorError::ExhaustedAttempts {
-        attempts: config.attempts.max(1),
-    })
 }
 
 pub fn generate_rejection_solvable_board(
@@ -245,6 +261,107 @@ impl Region {
     fn area(self) -> usize {
         self.width * self.height
     }
+}
+
+fn fill_straight_strips(
+    config: &FungsterConfig,
+    rng: &mut Rng64,
+    cells: &mut [u8],
+) -> Result<(), GeneratorError> {
+    let horizontal_height = config.height / 2;
+    for y in 0..horizontal_height {
+        fill_horizontal_strip(config, rng, cells, y)?;
+    }
+    for x in 0..config.width {
+        fill_vertical_strip(config, rng, cells, x, horizontal_height)?;
+    }
+    Ok(())
+}
+
+fn fill_horizontal_strip(
+    config: &FungsterConfig,
+    rng: &mut Rng64,
+    cells: &mut [u8],
+    y: usize,
+) -> Result<(), GeneratorError> {
+    let segments = partition_line(config.width, config.min_tuple, config.max_tuple, rng).ok_or(
+        GeneratorError::InvalidConfig("width cannot be tiled by the configured tuple bounds"),
+    )?;
+    let mut left = 0;
+    for segment_len in segments {
+        fill_rect_region(
+            config.width,
+            rng,
+            cells,
+            Region {
+                left,
+                top: y,
+                width: segment_len,
+                height: 1,
+            },
+        );
+        left += segment_len;
+    }
+    Ok(())
+}
+
+fn fill_vertical_strip(
+    config: &FungsterConfig,
+    rng: &mut Rng64,
+    cells: &mut [u8],
+    x: usize,
+    top: usize,
+) -> Result<(), GeneratorError> {
+    let strip_height = config.height - top;
+    let segments = partition_line(strip_height, config.min_tuple, config.max_tuple, rng).ok_or(
+        GeneratorError::InvalidConfig("height cannot be tiled by the configured tuple bounds"),
+    )?;
+    let mut current_top = top;
+    for segment_len in segments {
+        fill_rect_region(
+            config.width,
+            rng,
+            cells,
+            Region {
+                left: x,
+                top: current_top,
+                width: 1,
+                height: segment_len,
+            },
+        );
+        current_top += segment_len;
+    }
+    Ok(())
+}
+
+fn partition_line(
+    length: usize,
+    min_tuple: usize,
+    max_tuple: usize,
+    rng: &mut Rng64,
+) -> Option<Vec<usize>> {
+    fn can_partition(length: usize, min_tuple: usize, max_tuple: usize) -> bool {
+        length == 0
+            || (min_tuple..=max_tuple)
+                .any(|len| length >= len && can_partition(length - len, min_tuple, max_tuple))
+    }
+
+    if !can_partition(length, min_tuple, max_tuple) {
+        return None;
+    }
+
+    let mut remaining = length;
+    let mut segments = Vec::new();
+    while remaining > 0 {
+        let mut candidates = (min_tuple..=max_tuple)
+            .filter(|len| remaining >= *len && can_partition(remaining - *len, min_tuple, max_tuple))
+            .collect::<Vec<_>>();
+        shuffle(rng, &mut candidates);
+        let len = candidates[0];
+        segments.push(len);
+        remaining -= len;
+    }
+    Some(segments)
 }
 
 fn tile_random_rectangles(config: &FungsterConfig, rng: &mut Rng64, cells: &mut [u8]) -> bool {

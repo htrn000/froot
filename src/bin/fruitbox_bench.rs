@@ -51,7 +51,7 @@ struct Config {
     max_tuple: usize,
     #[arg(long, default_value_t = 100)]
     max_attempts: usize,
-    #[arg(long, default_value_t = 1_000_000)]
+    #[arg(long, default_value_t = 1_000)]
     max_states: usize,
     /// Stop exhaustive DP after this many empty-board solutions are encountered.
     #[arg(long)]

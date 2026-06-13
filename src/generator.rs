@@ -125,7 +125,7 @@ impl Default for RejectionConfig {
             height: 10,
             max_attempts: 100,
             solver_limits: SolverLimits {
-                max_states: 250_000,
+                max_states: 1_000,
                 max_empty_solutions: None,
             },
         }

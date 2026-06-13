@@ -51,7 +51,8 @@ partition strategies: `--fungster-partition straight-strips` uses a simple
 mixed horizontal/vertical strip partition, while `random-backtracking` randomly
 tiles valid rectangular sum-10 moves and restarts if it gets stuck. Use
 `--max-empty-solutions <n>` to let exhaustive DP stop after seeing `n`
-empty-board solutions and mark the CSV row as partial.
+empty-board solutions and mark the CSV row as partial. Solver benchmarks
+default to `--max-states 1000`; raise it explicitly for deeper searches.
 
 ## Docker Compose
 

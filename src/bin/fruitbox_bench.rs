@@ -3,7 +3,7 @@ use std::process::ExitCode;
 use _native::board::Board;
 use _native::generator::{
     generate_fungster_board, generate_random_board, generate_rejection_solvable_board,
-    FungsterAxis, FungsterConfig, RandomConfig, RejectionConfig, Rng64,
+    FungsterConfig, RandomConfig, RejectionConfig, Rng64,
 };
 use _native::solver::{
     solve_exhaustive, solve_first_empty, MoveOrdering, SearchError, SolverLimits,
@@ -17,14 +17,6 @@ enum GeneratorKind {
     Fungster,
     Random,
     Rejection,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
-/// Preferred strip fallback for skinny regions during recursive fungster
-/// construction; normal regions still split into square-ish boxes.
-enum FungsterAxisArg {
-    Row,
-    Column,
 }
 
 #[derive(Clone, Debug, Parser)]
@@ -42,14 +34,13 @@ struct Config {
     samples: usize,
     #[arg(long, default_value_t = 1)]
     seed: u64,
-    #[arg(long, default_value_t = 32)]
-    groups: usize,
+    /// Full-board random tiling restarts for fungster generation.
+    #[arg(long, alias = "groups", default_value_t = 32)]
+    fungster_attempts: usize,
     #[arg(long, default_value_t = 2)]
     min_tuple: usize,
     #[arg(long, default_value_t = 4)]
     max_tuple: usize,
-    #[arg(long, value_enum, default_value = "row")]
-    fungster_axis: FungsterAxisArg,
     #[arg(long, default_value_t = 100)]
     max_attempts: usize,
     #[arg(long, default_value_t = 1_000_000)]
@@ -105,10 +96,9 @@ fn build_board(config: &Config, rng: &mut Rng64) -> Result<Board, String> {
             &FungsterConfig {
                 width: config.width,
                 height: config.height,
-                groups: config.groups,
+                attempts: config.fungster_attempts,
                 min_tuple: config.min_tuple,
                 max_tuple: config.max_tuple,
-                axis: config.fungster_axis.into(),
             },
             rng,
         )
@@ -232,14 +222,5 @@ fn generator_name(generator: GeneratorKind) -> &'static str {
         GeneratorKind::Fungster => "fungster",
         GeneratorKind::Random => "random",
         GeneratorKind::Rejection => "rejection",
-    }
-}
-
-impl From<FungsterAxisArg> for FungsterAxis {
-    fn from(axis: FungsterAxisArg) -> Self {
-        match axis {
-            FungsterAxisArg::Row => Self::Row,
-            FungsterAxisArg::Column => Self::Column,
-        }
     }
 }

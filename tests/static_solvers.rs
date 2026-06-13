@@ -1,7 +1,7 @@
 use _native::board::{Board, TARGET_SUM};
 use _native::generator::{
     generate_fungster_board, generate_random_board, generate_rejection_solvable_board,
-    FungsterAxis, FungsterConfig, GeneratorError, RandomConfig, RejectionConfig, Rng64,
+    FungsterConfig, GeneratorError, RandomConfig, RejectionConfig, Rng64,
 };
 use _native::solver::{
     has_empty_solution, solve_exhaustive, solve_first_empty, MoveOrdering, SearchError,
@@ -69,10 +69,9 @@ fn dfs_solver_finds_fungster_board_solution() {
         &FungsterConfig {
             width: 6,
             height: 4,
-            groups: 4,
+            attempts: 4,
             min_tuple: 2,
             max_tuple: 4,
-            axis: FungsterAxis::Row,
         },
         &mut rng,
     )
@@ -123,16 +122,15 @@ fn early_empty_search_respects_state_limits() {
 }
 
 #[test]
-fn dfs_solver_finds_column_fungster_board_solution() {
+fn dfs_solver_finds_another_fungster_board_solution() {
     let mut rng = Rng64::new(17);
     let board = generate_fungster_board(
         &FungsterConfig {
             width: 6,
             height: 4,
-            groups: 4,
+            attempts: 4,
             min_tuple: 2,
             max_tuple: 4,
-            axis: FungsterAxis::Column,
         },
         &mut rng,
     )

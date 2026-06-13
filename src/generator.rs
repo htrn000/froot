@@ -60,25 +60,16 @@ impl SplitMix64 {
 }
 
 #[derive(Clone, Debug)]
-/// Generates solvable-by-construction boards by recursively partitioning the
-/// full board into smaller rectangular regions. Small leaves become positive
-/// sum-10 tuples; skinny leftovers use the strip fallback selected by `axis`.
+/// Generates solvable-by-construction boards by randomly tiling the full board
+/// with small rectangular sum-10 moves. If a random tiling gets stuck, the
+/// generator backtracks and eventually restarts rather than applying a cleanup
+/// rule for uneven leftovers.
 pub struct FungsterConfig {
     pub width: usize,
     pub height: usize,
-    pub groups: usize,
+    pub attempts: usize,
     pub min_tuple: usize,
     pub max_tuple: usize,
-    pub axis: FungsterAxis,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-/// Preferred fallback when a remaining recursive region is too skinny to split
-/// into square-ish boxes. Each fallback tuple is still a rectangular sum-10
-/// move, but uses either 1-height row strips or 1-width column strips.
-pub enum FungsterAxis {
-    Row,
-    Column,
 }
 
 impl Default for FungsterConfig {
@@ -86,10 +77,9 @@ impl Default for FungsterConfig {
         Self {
             width: 17,
             height: 10,
-            groups: 32,
+            attempts: 32,
             min_tuple: 2,
             max_tuple: 4,
-            axis: FungsterAxis::Row,
         }
     }
 }
@@ -170,20 +160,16 @@ pub fn generate_fungster_board(
         ));
     }
 
-    let mut cells = vec![0_u8; config.width * config.height];
-    fill_region(
-        config,
-        rng,
-        &mut cells,
-        Region {
-            left: 0,
-            top: 0,
-            width: config.width,
-            height: config.height,
-        },
-    )?;
+    for _ in 0..config.attempts.max(1) {
+        let mut cells = vec![0_u8; config.width * config.height];
+        if tile_random_rectangles(config, rng, &mut cells) {
+            return Board::new(cells, config.width).map_err(GeneratorError::from);
+        }
+    }
 
-    Board::new(cells, config.width).map_err(GeneratorError::from)
+    Err(GeneratorError::ExhaustedAttempts {
+        attempts: config.attempts.max(1),
+    })
 }
 
 pub fn generate_rejection_solvable_board(
@@ -247,41 +233,6 @@ pub fn generate_random_board(
     Board::new(cells, config.width).map_err(GeneratorError::from)
 }
 
-fn partition_line(
-    width: usize,
-    min_tuple: usize,
-    max_tuple: usize,
-    rng: &mut Rng64,
-) -> Option<Vec<usize>> {
-    fn can_partition(width: usize, min_tuple: usize, max_tuple: usize) -> bool {
-        width == 0
-            || (min_tuple..=max_tuple)
-                .any(|len| width >= len && can_partition(width - len, min_tuple, max_tuple))
-    }
-
-    if !can_partition(width, min_tuple, max_tuple) {
-        return None;
-    }
-
-    let mut remaining = width;
-    let mut segments = Vec::new();
-    while remaining > 0 {
-        let mut candidates = (min_tuple..=max_tuple)
-            .filter(|len| {
-                remaining >= *len && can_partition(remaining - *len, min_tuple, max_tuple)
-            })
-            .collect::<Vec<_>>();
-        for index in (1..candidates.len()).rev() {
-            let swap = rng.range(0, index + 1);
-            candidates.swap(index, swap);
-        }
-        let len = candidates[0];
-        segments.push(len);
-        remaining -= len;
-    }
-    Some(segments)
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct Region {
     left: usize,
@@ -296,182 +247,56 @@ impl Region {
     }
 }
 
-fn fill_region(
-    config: &FungsterConfig,
-    rng: &mut Rng64,
-    cells: &mut [u8],
-    region: Region,
-) -> Result<(), GeneratorError> {
-    let area = region.area();
-    if (config.min_tuple..=config.max_tuple).contains(&area) {
-        fill_tuple_rect(config.width, rng, cells, region);
-        return Ok(());
-    }
-
-    if area < config.min_tuple {
-        return Err(GeneratorError::InvalidConfig(
-            "region became smaller than the configured tuple minimum",
-        ));
-    }
-
-    if should_use_strip_fallback(config, region) {
-        return fill_strip_fallback(config, rng, cells, region);
-    }
-
-    let (first, second) = split_squareish(region, rng);
-    fill_region(config, rng, cells, first)?;
-    fill_region(config, rng, cells, second)
-}
-
-fn split_squareish(region: Region, rng: &mut Rng64) -> (Region, Region) {
-    if region.width > region.height {
-        let split = region.height;
-        (
-            Region {
-                width: split,
-                ..region
-            },
-            Region {
-                left: region.left + split,
-                width: region.width - split,
-                ..region
-            },
-        )
-    } else if region.height > region.width {
-        let split = region.width;
-        (
-            Region {
-                height: split,
-                ..region
-            },
-            Region {
-                top: region.top + split,
-                height: region.height - split,
-                ..region
-            },
-        )
-    } else if rng.range(0, 2) == 0 {
-        let split = squareish_split(region.width, rng);
-        (
-            Region {
-                width: split,
-                ..region
-            },
-            Region {
-                left: region.left + split,
-                width: region.width - split,
-                ..region
-            },
-        )
-    } else {
-        let split = squareish_split(region.height, rng);
-        (
-            Region {
-                height: split,
-                ..region
-            },
-            Region {
-                top: region.top + split,
-                height: region.height - split,
-                ..region
-            },
-        )
-    }
-}
-
-fn squareish_split(length: usize, rng: &mut Rng64) -> usize {
-    debug_assert!(length > 1);
-    let midpoint = length / 2;
-    let start = midpoint.saturating_sub(1).max(1);
-    let end = (midpoint + 2).min(length);
-    rng.range(start, end)
-}
-
-fn should_use_strip_fallback(config: &FungsterConfig, region: Region) -> bool {
-    region.width == 1
-        || region.height == 1
-        || (region.area() > config.max_tuple
-            && (region.width <= config.max_tuple || region.height <= config.max_tuple))
-}
-
-fn fill_strip_fallback(
-    config: &FungsterConfig,
-    rng: &mut Rng64,
-    cells: &mut [u8],
-    region: Region,
-) -> Result<(), GeneratorError> {
-    let preferred = match config.axis {
-        FungsterAxis::Row => fill_row_strips(config, rng, cells, region),
-        FungsterAxis::Column => fill_column_strips(config, rng, cells, region),
+fn tile_random_rectangles(config: &FungsterConfig, rng: &mut Rng64, cells: &mut [u8]) -> bool {
+    let Some(index) = cells.iter().position(|cell| *cell == 0) else {
+        return true;
     };
-    if preferred.is_ok() {
-        return preferred;
-    }
+    let x = index % config.width;
+    let y = index / config.width;
+    let mut candidates = candidate_rectangles(config, cells, x, y);
+    shuffle(rng, &mut candidates);
 
-    match config.axis {
-        FungsterAxis::Row => fill_column_strips(config, rng, cells, region),
-        FungsterAxis::Column => fill_row_strips(config, rng, cells, region),
+    for region in candidates {
+        fill_tuple_rect(config.width, rng, cells, region);
+        if tile_random_rectangles(config, rng, cells) {
+            return true;
+        }
+        clear_rect(config.width, cells, region);
     }
+    false
 }
 
-fn fill_row_strips(
-    config: &FungsterConfig,
-    rng: &mut Rng64,
-    cells: &mut [u8],
-    region: Region,
-) -> Result<(), GeneratorError> {
-    for y in region.top..region.top + region.height {
-        let segments = partition_line(region.width, config.min_tuple, config.max_tuple, rng)
-            .ok_or(GeneratorError::InvalidConfig(
-                "width cannot be tiled by the configured tuple bounds",
-            ))?;
-        let mut left = region.left;
-        for segment_len in segments {
-            fill_tuple_rect(
-                config.width,
-                rng,
-                cells,
-                Region {
-                    left,
-                    top: y,
-                    width: segment_len,
-                    height: 1,
-                },
-            );
-            left += segment_len;
+fn candidate_rectangles(config: &FungsterConfig, cells: &[u8], x: usize, y: usize) -> Vec<Region> {
+    let mut candidates = Vec::new();
+    for height in 1..=config.max_tuple {
+        for width in 1..=config.max_tuple {
+            let area = width * height;
+            if !(config.min_tuple..=config.max_tuple).contains(&area) {
+                continue;
+            }
+            if width > config.width || height > config.height {
+                continue;
+            }
+            let min_left = x.saturating_add(1).saturating_sub(width);
+            let max_left = x.min(config.width - width);
+            let min_top = y.saturating_add(1).saturating_sub(height);
+            let max_top = y.min(config.height - height);
+            for top in min_top..=max_top {
+                for left in min_left..=max_left {
+                    let region = Region {
+                        left,
+                        top,
+                        width,
+                        height,
+                    };
+                    if rect_is_empty(config.width, cells, region) {
+                        candidates.push(region);
+                    }
+                }
+            }
         }
     }
-    Ok(())
-}
-
-fn fill_column_strips(
-    config: &FungsterConfig,
-    rng: &mut Rng64,
-    cells: &mut [u8],
-    region: Region,
-) -> Result<(), GeneratorError> {
-    for x in region.left..region.left + region.width {
-        let segments = partition_line(region.height, config.min_tuple, config.max_tuple, rng)
-            .ok_or(GeneratorError::InvalidConfig(
-                "height cannot be tiled by the configured tuple bounds",
-            ))?;
-        let mut top = region.top;
-        for segment_len in segments {
-            fill_tuple_rect(
-                config.width,
-                rng,
-                cells,
-                Region {
-                    left: x,
-                    top,
-                    width: 1,
-                    height: segment_len,
-                },
-            );
-            top += segment_len;
-        }
-    }
-    Ok(())
+    candidates
 }
 
 fn fill_tuple_rect(board_width: usize, rng: &mut Rng64, cells: &mut [u8], region: Region) {
@@ -480,6 +305,26 @@ fn fill_tuple_rect(board_width: usize, rng: &mut Rng64, cells: &mut [u8], region
         let x = offset % region.width;
         let y = offset / region.width;
         cells[(region.top + y) * board_width + region.left + x] = value;
+    }
+}
+
+fn clear_rect(board_width: usize, cells: &mut [u8], region: Region) {
+    for y in region.top..region.top + region.height {
+        for x in region.left..region.left + region.width {
+            cells[y * board_width + x] = 0;
+        }
+    }
+}
+
+fn rect_is_empty(board_width: usize, cells: &[u8], region: Region) -> bool {
+    (region.top..region.top + region.height)
+        .all(|y| (region.left..region.left + region.width).all(|x| cells[y * board_width + x] == 0))
+}
+
+fn shuffle<T>(rng: &mut Rng64, values: &mut [T]) {
+    for index in (1..values.len()).rev() {
+        let swap = rng.range(0, index + 1);
+        values.swap(index, swap);
     }
 }
 

@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 use _native::board::Board;
@@ -5,7 +6,11 @@ use _native::generator::{
     generate_fungster_board, generate_random_board, generate_rejection_solvable_board,
     FungsterConfig, FungsterPartitionStrategy, RandomConfig, RejectionConfig, Rng64,
 };
+use _native::instrument::{
+    instrumentation_available, profile_solver_call, FlamegraphEvent, FlamegraphSettings,
+};
 use _native::solver::{
+    candidate_profile_snapshot, reset_candidate_profile, set_candidate_profile_enabled,
     solve_exhaustive, solve_first_empty, MoveOrdering, SearchError, SolverLimits,
 };
 use clap::{Args, Parser, ValueEnum};
@@ -91,10 +96,25 @@ struct OutputArgs {
     /// Run solver benchmarks even when `--print-board` is set.
     #[arg(long)]
     run_solvers: bool,
+    /// Emit candidate vector histograms and collect/sort split per DFS run.
+    #[arg(long)]
+    candidate_profile: bool,
+    /// Directory where per-approach flamegraph SVGs are written.
+    #[arg(long)]
+    flamegraph_dir: Option<PathBuf>,
+    /// Sampling frequency for profiler-based flamegraph captures.
+    #[arg(long, default_value_t = 199)]
+    flamegraph_frequency: i32,
 }
 
 fn main() -> ExitCode {
     let config = Config::parse();
+    set_candidate_profile_enabled(config.candidate_profile);
+    if !instrumentation_available() && wants_instrumentation(&config) {
+        eprintln!(
+            "[fruitbox_bench] event=instrumentation_disabled reason=compiled_with_no_instrument"
+        );
+    }
 
     let mut rng = Rng64::new(config.generation.seed);
     if should_run_solvers(&config) {
@@ -124,6 +144,14 @@ fn main() -> ExitCode {
 
 fn should_run_solvers(config: &Config) -> bool {
     !config.output.print_board || config.output.run_solvers
+}
+
+fn wants_instrumentation(config: &Config) -> bool {
+    config.candidate_profile || config.flamegraph_dir.is_some()
+}
+
+fn flamegraph_settings(config: &Config) -> FlamegraphSettings {
+    FlamegraphSettings::from_parts(config.flamegraph_dir.clone(), config.flamegraph_frequency)
 }
 
 fn build_board(config: &Config, rng: &mut Rng64) -> Result<Board, String> {
@@ -197,14 +225,22 @@ fn run_approaches(sample: usize, config: &Config, board: &Board) {
         max_states: config.solver.max_states,
         max_empty_solutions: config.solver.max_empty_solutions,
     };
+    let flamegraph = flamegraph_settings(config);
     trace_solver_batch_start(sample, generator, board, total_sum, limits);
 
     for (name, ordering) in [
         ("dfs_first_largest", MoveOrdering::LargestScoreFirst),
         ("dfs_first_smallest", MoveOrdering::SmallestScoreFirst),
     ] {
+        if config.candidate_profile {
+            reset_candidate_profile();
+        }
         eprintln!("[fruitbox_bench] sample={sample} approach={name} event=start");
-        match solve_first_empty(board, ordering, limits) {
+        let (result, flamegraph_event) = profile_solver_call(&flamegraph, sample, name, || {
+            solve_first_empty(board, ordering, limits)
+        });
+        trace_flamegraph_event(sample, name, flamegraph_event.as_ref());
+        match result {
             Ok(result) => {
                 let elapsed_us = result.elapsed.as_micros();
                 eprintln!(
@@ -229,10 +265,18 @@ fn run_approaches(sample: usize, config: &Config, board: &Board) {
                 print_search_error(sample, generator, name, board, total_sum, error);
             }
         }
+        if config.candidate_profile {
+            trace_candidate_profile(sample, name);
+        }
     }
 
     eprintln!("[fruitbox_bench] sample={sample} approach=dp_exhaustive event=start");
-    match solve_exhaustive(board, limits) {
+    let (result, flamegraph_event) =
+        profile_solver_call(&flamegraph, sample, "dp_exhaustive", || {
+            solve_exhaustive(board, limits)
+        });
+    trace_flamegraph_event(sample, "dp_exhaustive", flamegraph_event.as_ref());
+    match result {
         Ok(result) => {
             let elapsed_us = result.elapsed.as_micros();
             eprintln!(
@@ -286,6 +330,39 @@ fn trace_search_error(sample: usize, approach: &str, error: &SearchError) {
         SearchError::StateLimitExceeded { max_states } => eprintln!(
             "[fruitbox_bench] sample={sample} approach={approach} event=finish status=state_limit max_states={max_states}"
         ),
+    }
+}
+
+fn trace_candidate_profile(sample: usize, approach: &str) {
+    if let Some(profile) = candidate_profile_snapshot() {
+        eprintln!(
+            "[fruitbox_bench] sample={sample} approach={approach} event=candidate_profile calls={} total_candidates={} avg_candidates={:.2} p50={} p90={} p99={} max={} collect_time_us={} sort_time_us={}",
+            profile.calls,
+            profile.total_candidates,
+            profile.avg_candidates,
+            profile.p50_candidates,
+            profile.p90_candidates,
+            profile.p99_candidates,
+            profile.max_candidates,
+            profile.collect_time_us,
+            profile.sort_time_us,
+        );
+    }
+}
+
+fn trace_flamegraph_event(sample: usize, approach: &str, event: Option<&FlamegraphEvent>) {
+    match event {
+        Some(FlamegraphEvent::Written { path, elapsed_us }) => eprintln!(
+            "[fruitbox_bench] sample={sample} approach={approach} event=flamegraph_written path={} elapsed_us={elapsed_us}",
+            path.display()
+        ),
+        Some(FlamegraphEvent::Failed { reason }) => eprintln!(
+            "[fruitbox_bench] sample={sample} approach={approach} event=flamegraph_failed reason={reason}"
+        ),
+        Some(FlamegraphEvent::Skipped { reason }) => eprintln!(
+            "[fruitbox_bench] sample={sample} approach={approach} event=flamegraph_skipped reason={reason}"
+        ),
+        None => {}
     }
 }
 

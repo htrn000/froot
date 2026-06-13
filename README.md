@@ -41,6 +41,23 @@ Run the Rust static-solver benchmark binary:
 cargo run --release --bin fruitbox_bench -- --generator fungster --width 17 --height 10
 ```
 
+Generate per-approach flamegraphs and candidate telemetry while benchmarking:
+
+```bash
+cargo run --release --bin fruitbox_bench -- \
+  --generator fungster \
+  --samples 1 \
+  --flamegraph-dir /tmp/fruitbox-flamegraphs \
+  --candidate-profile
+```
+
+Disable instrumentation completely at compile time (useful for clean perf baselines):
+
+```bash
+cargo run --release --bin fruitbox_bench --features no_instrument -- \
+  --generator fungster
+```
+
 The benchmark prints CSV rows for DFS single-solution candidates and the
 memoized exhaustive DP summary. Use `--generator random` for positive 17x10
 boards whose total sum is divisible by 10, or `--generator rejection` to keep

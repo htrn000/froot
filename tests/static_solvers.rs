@@ -5,7 +5,8 @@ use _native::generator::{
     Rng64,
 };
 use _native::solver::{
-    has_empty_solution, solve_exhaustive, solve_first_empty, MoveOrdering, SearchError,
+    candidate_profile_snapshot, has_empty_solution, reset_candidate_profile,
+    set_candidate_profile_enabled, solve_exhaustive, solve_first_empty, MoveOrdering, SearchError,
     SolverLimits,
 };
 use insta::assert_snapshot;
@@ -286,6 +287,28 @@ fn early_empty_search_respects_state_limits() {
         result,
         Err(SearchError::StateLimitExceeded { max_states: 0 })
     );
+}
+
+#[cfg(not(feature = "no_instrument"))]
+#[test]
+fn candidate_profile_collects_ordered_candidate_stats() {
+    let board = Board::new(vec![1, 9, 4, 6], 2).unwrap();
+    set_candidate_profile_enabled(true);
+    reset_candidate_profile();
+
+    let _ = solve_first_empty(
+        &board,
+        MoveOrdering::LargestScoreFirst,
+        SolverLimits::default(),
+    )
+    .unwrap();
+
+    let snapshot = candidate_profile_snapshot().expect("candidate profile should be enabled");
+    assert!(snapshot.calls > 0);
+    assert!(snapshot.total_candidates >= snapshot.calls);
+    assert!(snapshot.max_candidates > 0);
+
+    set_candidate_profile_enabled(false);
 }
 
 #[test]

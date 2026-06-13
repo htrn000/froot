@@ -3,12 +3,17 @@ name = "fruitbox-core"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+no_instrument = []
+
 [lib]
 name = "_native"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 clap = { version = "4.5.50", features = ["derive"] }
+pprof = { version = "0.13.0", features = ["flamegraph"] }
 pyo3 = { version = "0.28.3", features = ["extension-module"] }
 
 [[bin]]

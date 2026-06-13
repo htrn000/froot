@@ -3,6 +3,7 @@ use pyo3::prelude::*;
 
 pub mod board;
 pub mod generator;
+pub mod instrument;
 pub mod solver;
 
 /// Find all axis-aligned rectangles whose cell values sum to the target.

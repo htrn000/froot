@@ -17,6 +17,10 @@
 //! witness under a fixed state budget.
 
 use std::collections::{HashMap, HashSet};
+#[cfg(not(feature = "no_instrument"))]
+use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(not(feature = "no_instrument"))]
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use crate::board::{Board, Mask, Rectangle, TARGET_SUM};
@@ -38,6 +42,120 @@ impl Default for SolverLimits {
             max_empty_solutions: None,
         }
     }
+}
+
+pub fn set_candidate_profile_enabled(enabled: bool) {
+    #[cfg(not(feature = "no_instrument"))]
+    {
+        CANDIDATE_PROFILE_ENABLED.store(enabled, Ordering::Relaxed);
+    }
+    #[cfg(feature = "no_instrument")]
+    {
+        let _ = enabled;
+    }
+}
+
+pub fn reset_candidate_profile() {
+    #[cfg(not(feature = "no_instrument"))]
+    {
+        if !candidate_profile_enabled() {
+            return;
+        }
+        let mutex = CANDIDATE_PROFILE.get_or_init(|| Mutex::new(CandidateProfile::default()));
+        if let Ok(mut profile) = mutex.lock() {
+            *profile = CandidateProfile::default();
+        }
+    }
+}
+
+pub fn candidate_profile_snapshot() -> Option<CandidateProfileSnapshot> {
+    #[cfg(not(feature = "no_instrument"))]
+    {
+        if !candidate_profile_enabled() {
+            return None;
+        }
+        let mutex = CANDIDATE_PROFILE.get_or_init(|| Mutex::new(CandidateProfile::default()));
+        let profile = mutex.lock().ok()?.clone();
+        if profile.calls == 0 {
+            return Some(CandidateProfileSnapshot {
+                calls: 0,
+                total_candidates: 0,
+                avg_candidates: 0.0,
+                p50_candidates: 0,
+                p90_candidates: 0,
+                p99_candidates: 0,
+                max_candidates: 0,
+                collect_time_us: 0,
+                sort_time_us: 0,
+            });
+        }
+        return Some(CandidateProfileSnapshot {
+            calls: profile.calls,
+            total_candidates: profile.total_candidates,
+            avg_candidates: profile.total_candidates as f64 / profile.calls as f64,
+            p50_candidates: histogram_quantile(&profile.histogram, profile.calls, 0.50),
+            p90_candidates: histogram_quantile(&profile.histogram, profile.calls, 0.90),
+            p99_candidates: histogram_quantile(&profile.histogram, profile.calls, 0.99),
+            max_candidates: profile.max_candidates,
+            collect_time_us: profile.collect_ns / 1_000,
+            sort_time_us: profile.sort_ns / 1_000,
+        });
+    }
+    #[cfg(feature = "no_instrument")]
+    {
+        None
+    }
+}
+
+#[cfg(not(feature = "no_instrument"))]
+fn candidate_profile_enabled() -> bool {
+    CANDIDATE_PROFILE_ENABLED.load(Ordering::Relaxed)
+}
+
+#[cfg(feature = "no_instrument")]
+fn candidate_profile_enabled() -> bool {
+    false
+}
+
+#[cfg(not(feature = "no_instrument"))]
+fn record_candidate_profile(candidate_count: usize, collect_ns: u128, sort_ns: u128) {
+    if !candidate_profile_enabled() {
+        return;
+    }
+    let mutex = CANDIDATE_PROFILE.get_or_init(|| Mutex::new(CandidateProfile::default()));
+    let Ok(mut profile) = mutex.lock() else {
+        return;
+    };
+    profile.calls = profile.calls.saturating_add(1);
+    profile.total_candidates = profile
+        .total_candidates
+        .saturating_add(candidate_count as u64);
+    profile.max_candidates = profile.max_candidates.max(candidate_count);
+    profile.collect_ns = profile.collect_ns.saturating_add(collect_ns);
+    profile.sort_ns = profile.sort_ns.saturating_add(sort_ns);
+    if candidate_count >= profile.histogram.len() {
+        profile.histogram.resize(candidate_count + 1, 0);
+    }
+    profile.histogram[candidate_count] = profile.histogram[candidate_count].saturating_add(1);
+}
+
+#[cfg(feature = "no_instrument")]
+fn record_candidate_profile(_candidate_count: usize, _collect_ns: u128, _sort_ns: u128) {}
+
+#[cfg(not(feature = "no_instrument"))]
+fn histogram_quantile(histogram: &[u64], total_count: u64, quantile: f64) -> usize {
+    if total_count == 0 {
+        return 0;
+    }
+    let target = ((total_count as f64 * quantile).ceil() as u64).max(1);
+    let mut seen = 0_u64;
+    for (value, count) in histogram.iter().enumerate() {
+        seen = seen.saturating_add(*count);
+        if seen >= target {
+            return value;
+        }
+    }
+    histogram.len().saturating_sub(1)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -94,6 +212,38 @@ pub struct EmptySearchResult {
     pub states_evaluated: usize,
     pub elapsed: Duration,
 }
+
+#[derive(Clone, Debug, PartialEq)]
+/// Optional per-call candidate telemetry for the DFS ordering stage. These
+/// statistics are intended for local tuning and only collect data when the
+/// benchmark explicitly enables candidate profiling.
+pub struct CandidateProfileSnapshot {
+    pub calls: u64,
+    pub total_candidates: u64,
+    pub avg_candidates: f64,
+    pub p50_candidates: usize,
+    pub p90_candidates: usize,
+    pub p99_candidates: usize,
+    pub max_candidates: usize,
+    pub collect_time_us: u128,
+    pub sort_time_us: u128,
+}
+
+#[derive(Clone, Debug, Default)]
+#[cfg(not(feature = "no_instrument"))]
+struct CandidateProfile {
+    calls: u64,
+    total_candidates: u64,
+    max_candidates: usize,
+    collect_ns: u128,
+    sort_ns: u128,
+    histogram: Vec<u64>,
+}
+
+#[cfg(not(feature = "no_instrument"))]
+static CANDIDATE_PROFILE_ENABLED: AtomicBool = AtomicBool::new(false);
+#[cfg(not(feature = "no_instrument"))]
+static CANDIDATE_PROFILE: OnceLock<Mutex<CandidateProfile>> = OnceLock::new();
 
 #[derive(Clone, Copy, Debug)]
 /// Internal memo payload for one board state. Keeping this smaller than the
@@ -390,10 +540,16 @@ fn dfs_first_empty(
 }
 
 fn ordered_candidates(board: &Board, state: Mask, ordering: MoveOrdering) -> Vec<Rectangle> {
+    let profiling_enabled = candidate_profile_enabled();
+    let collect_started = profiling_enabled.then(Instant::now);
     let mut candidates: Vec<Rectangle> = board.valid_moves(state, TARGET_SUM).collect();
+    let collect_ns = collect_started.map_or(0, |started| started.elapsed().as_nanos());
+    let sort_started = profiling_enabled.then(Instant::now);
     candidates.sort_by_key(|rectangle| board.live_score(state, *rectangle));
     if ordering == MoveOrdering::LargestScoreFirst {
         candidates.reverse();
     }
+    let sort_ns = sort_started.map_or(0, |started| started.elapsed().as_nanos());
+    record_candidate_profile(candidates.len(), collect_ns, sort_ns);
     candidates
 }

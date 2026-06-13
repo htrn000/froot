@@ -8,7 +8,7 @@ use _native::generator::{
 use _native::solver::{
     solve_exhaustive, solve_first_empty, MoveOrdering, SearchError, SolverLimits,
 };
-use clap::{Parser, ValueEnum};
+use clap::{Args, Parser, ValueEnum};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 /// Generation modes are deliberately selected from the CLI so the same solver
@@ -30,16 +30,40 @@ enum FungsterPartitionArg {
 /// Clap-owned benchmark configuration. Keeping defaults here makes the binary
 /// the reproducible entry point for timing and state-count comparisons.
 struct Config {
+    #[command(flatten, next_help_heading = "Generation")]
+    generation: GenerationArgs,
+    #[command(flatten, next_help_heading = "Board")]
+    board: BoardArgs,
+    #[command(flatten, next_help_heading = "Fungster")]
+    fungster: FungsterArgs,
+    #[command(flatten, next_help_heading = "Rejection")]
+    rejection: RejectionArgs,
+    #[command(flatten, next_help_heading = "Solver")]
+    solver: SolverArgs,
+    #[command(flatten, next_help_heading = "Output")]
+    output: OutputArgs,
+}
+
+#[derive(Clone, Debug, Args)]
+struct GenerationArgs {
     #[arg(long, value_enum, default_value = "fungster")]
     generator: GeneratorKind,
-    #[arg(long, default_value_t = 17)]
-    width: usize,
-    #[arg(long, default_value_t = 10)]
-    height: usize,
     #[arg(long, default_value_t = 3)]
     samples: usize,
     #[arg(long, default_value_t = 1)]
     seed: u64,
+}
+
+#[derive(Clone, Debug, Args)]
+struct BoardArgs {
+    #[arg(long, default_value_t = 17)]
+    width: usize,
+    #[arg(long, default_value_t = 10)]
+    height: usize,
+}
+
+#[derive(Clone, Debug, Args)]
+struct FungsterArgs {
     /// Full-board random tiling restarts for fungster generation.
     #[arg(long, alias = "groups", default_value_t = 32)]
     fungster_attempts: usize,
@@ -49,13 +73,25 @@ struct Config {
     min_tuple: usize,
     #[arg(long, default_value_t = 4)]
     max_tuple: usize,
+}
+
+#[derive(Clone, Debug, Args)]
+struct RejectionArgs {
     #[arg(long, default_value_t = 100)]
     max_attempts: usize,
+}
+
+#[derive(Clone, Debug, Args)]
+struct SolverArgs {
     #[arg(long, default_value_t = 1_000)]
     max_states: usize,
     /// Stop exhaustive DP after this many empty-board solutions are encountered.
     #[arg(long)]
     max_empty_solutions: Option<u128>,
+}
+
+#[derive(Clone, Debug, Args)]
+struct OutputArgs {
     /// Print sampled boards as text grids. By default this is sampling-only and
     /// does not run solvers unless `--run-solvers` is also set.
     #[arg(long)]
@@ -68,14 +104,14 @@ struct Config {
 fn main() -> ExitCode {
     let config = Config::parse();
 
-    let mut rng = Rng64::new(config.seed);
+    let mut rng = Rng64::new(config.generation.seed);
     if should_run_solvers(&config) {
         println!(
             "sample,generator,approach,width,height,total_sum,solvable,max_score,empty_steps,states,terminal_paths,empty_solutions,solution_limit_reached,elapsed_us,status"
         );
     }
 
-    for sample in 0..config.samples {
+    for sample in 0..config.generation.samples {
         let board = match build_board(&config, &mut rng) {
             Ok(board) => board,
             Err(error) => {
@@ -83,7 +119,7 @@ fn main() -> ExitCode {
                 return ExitCode::FAILURE;
             }
         };
-        if config.print_board {
+        if config.output.print_board {
             print_board(sample, &board);
         }
         if should_run_solvers(&config) {
@@ -95,39 +131,39 @@ fn main() -> ExitCode {
 }
 
 fn should_run_solvers(config: &Config) -> bool {
-    !config.print_board || config.run_solvers
+    !config.output.print_board || config.output.run_solvers
 }
 
 fn build_board(config: &Config, rng: &mut Rng64) -> Result<Board, String> {
-    match config.generator {
+    match config.generation.generator {
         GeneratorKind::Fungster => generate_fungster_board(
             &FungsterConfig {
-                width: config.width,
-                height: config.height,
-                attempts: config.fungster_attempts,
-                min_tuple: config.min_tuple,
-                max_tuple: config.max_tuple,
-                partition_strategy: config.fungster_partition.into(),
+                width: config.board.width,
+                height: config.board.height,
+                attempts: config.fungster.fungster_attempts,
+                min_tuple: config.fungster.min_tuple,
+                max_tuple: config.fungster.max_tuple,
+                partition_strategy: config.fungster.fungster_partition.into(),
             },
             rng,
         )
         .map_err(|error| format!("{error:?}")),
         GeneratorKind::Random => generate_random_board(
             &RandomConfig {
-                width: config.width,
-                height: config.height,
+                width: config.board.width,
+                height: config.board.height,
             },
             rng,
         )
         .map_err(|error| format!("{error:?}")),
         GeneratorKind::Rejection => generate_rejection_solvable_board(
             &RejectionConfig {
-                width: config.width,
-                height: config.height,
-                max_attempts: config.max_attempts,
+                width: config.board.width,
+                height: config.board.height,
+                max_attempts: config.rejection.max_attempts,
                 solver_limits: SolverLimits {
-                    max_states: config.max_states,
-                    max_empty_solutions: config.max_empty_solutions,
+                    max_states: config.solver.max_states,
+                    max_empty_solutions: config.solver.max_empty_solutions,
                 },
             },
             rng,
@@ -163,11 +199,11 @@ fn print_board(sample: usize, board: &Board) {
 }
 
 fn run_approaches(sample: usize, config: &Config, board: &Board) {
-    let generator = generator_name(config.generator);
+    let generator = generator_name(config.generation.generator);
     let total_sum: u16 = board.cells().iter().map(|cell| *cell as u16).sum();
     let limits = SolverLimits {
-        max_states: config.max_states,
-        max_empty_solutions: config.max_empty_solutions,
+        max_states: config.solver.max_states,
+        max_empty_solutions: config.solver.max_empty_solutions,
     };
     trace_solver_batch_start(sample, generator, board, total_sum, limits);
 

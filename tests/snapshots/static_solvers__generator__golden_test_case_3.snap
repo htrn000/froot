@@ -1,3 +1,7 @@
+---
+source: tests/static_solvers.rs
+expression: "board_snapshot(\"random\", seed, &board)"
+---
 generator=random
 seed=23
 width=17

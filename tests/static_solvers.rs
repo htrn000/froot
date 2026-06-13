@@ -7,8 +7,7 @@ use _native::solver::{
     has_empty_solution, solve_exhaustive, solve_first_empty, MoveOrdering, SearchError,
     SolverLimits,
 };
-use goldenfile::Mint;
-use std::io::Write;
+use insta::assert_snapshot;
 
 const OFFICIAL_WIDTH: usize = 17;
 const OFFICIAL_HEIGHT: usize = 10;
@@ -25,49 +24,47 @@ fn assert_official_positive_board(board: &Board) {
     assert_eq!(board_total(board) % TARGET_SUM, 0);
 }
 
-fn write_board_case(mint: &mut Mint, file_name: &str, generator: &str, seed: u64, board: &Board) {
-    let mut file = mint.new_goldenfile(file_name).unwrap();
-    writeln!(file, "generator={generator}").unwrap();
-    writeln!(file, "seed={seed}").unwrap();
-    writeln!(file, "width={}", board.width()).unwrap();
-    writeln!(file, "height={}", board.height()).unwrap();
-    writeln!(file, "total={}", board_total(board)).unwrap();
-    writeln!(file, "cells=").unwrap();
+fn board_snapshot(generator: &str, seed: u64, board: &Board) -> String {
+    let mut snapshot = String::new();
+    snapshot.push_str(&format!("generator={generator}\n"));
+    snapshot.push_str(&format!("seed={seed}\n"));
+    snapshot.push_str(&format!("width={}\n", board.width()));
+    snapshot.push_str(&format!("height={}\n", board.height()));
+    snapshot.push_str(&format!("total={}\n", board_total(board)));
+    snapshot.push_str("cells=\n");
     for row in board.cells().chunks(board.width()) {
         let line = row
             .iter()
             .map(|cell| cell.to_string())
             .collect::<Vec<_>>()
             .join(" ");
-        writeln!(file, "{line}").unwrap();
+        snapshot.push_str(&line);
+        snapshot.push('\n');
     }
+    snapshot
 }
 
-fn write_rejection_case(
-    mint: &mut Mint,
-    file_name: &str,
-    seed: u64,
-    result: Result<Board, GeneratorError>,
-) {
-    let mut file = mint.new_goldenfile(file_name).unwrap();
-    writeln!(file, "generator=rejection").unwrap();
-    writeln!(file, "seed={seed}").unwrap();
+fn rejection_snapshot(seed: u64, result: Result<Board, GeneratorError>) -> String {
+    let mut snapshot = String::new();
+    snapshot.push_str("generator=rejection\n");
+    snapshot.push_str(&format!("seed={seed}\n"));
     match result {
         Ok(board) => {
-            writeln!(file, "result=ok").unwrap();
-            writeln!(file, "width={}", board.width()).unwrap();
-            writeln!(file, "height={}", board.height()).unwrap();
-            writeln!(file, "total={}", board_total(&board)).unwrap();
+            snapshot.push_str("result=ok\n");
+            snapshot.push_str(&format!("width={}\n", board.width()));
+            snapshot.push_str(&format!("height={}\n", board.height()));
+            snapshot.push_str(&format!("total={}\n", board_total(&board)));
         }
         Err(GeneratorError::ExhaustedAttempts { attempts }) => {
-            writeln!(file, "result=exhausted").unwrap();
-            writeln!(file, "attempts={attempts}").unwrap();
+            snapshot.push_str("result=exhausted\n");
+            snapshot.push_str(&format!("attempts={attempts}\n"));
         }
         Err(error) => {
-            writeln!(file, "result=error").unwrap();
-            writeln!(file, "error={error:?}").unwrap();
+            snapshot.push_str("result=error\n");
+            snapshot.push_str(&format!("error={error:?}\n"));
         }
     }
+    snapshot
 }
 
 #[test]
@@ -87,36 +84,42 @@ fn rng_is_deterministic_and_uses_full_seeded_state() {
 
 #[test]
 fn golden_fungster_generation_for_official_seeds() {
-    let mut mint = Mint::new("tests/gold_test/generator");
-    let cases = [(17, "golden_test_case_0"), (23, "golden_test_case_1")];
+    let cases = [
+        (17, "generator__golden_test_case_0"),
+        (23, "generator__golden_test_case_1"),
+    ];
 
-    for (seed, file_name) in cases {
+    for (seed, snapshot_name) in cases {
         let mut rng = Rng64::new(seed);
         let board = generate_fungster_board(&FungsterConfig::default(), &mut rng).unwrap();
 
         assert_official_positive_board(&board);
-        write_board_case(&mut mint, file_name, "fungster", seed, &board);
+        assert_snapshot!(snapshot_name, board_snapshot("fungster", seed, &board));
     }
 }
 
 #[test]
 fn golden_random_generation_for_official_seeds() {
-    let mut mint = Mint::new("tests/gold_test/generator");
-    let cases = [(17, "golden_test_case_2"), (23, "golden_test_case_3")];
+    let cases = [
+        (17, "generator__golden_test_case_2"),
+        (23, "generator__golden_test_case_3"),
+    ];
 
-    for (seed, file_name) in cases {
+    for (seed, snapshot_name) in cases {
         let mut rng = Rng64::new(seed);
         let board = generate_random_board(&RandomConfig::default(), &mut rng).unwrap();
 
         assert_official_positive_board(&board);
-        write_board_case(&mut mint, file_name, "random", seed, &board);
+        assert_snapshot!(snapshot_name, board_snapshot("random", seed, &board));
     }
 }
 
 #[test]
 fn golden_rejection_generation_for_bounded_official_seeds() {
-    let mut mint = Mint::new("tests/gold_test/generator");
-    for (seed, file_name) in [(13, "golden_test_case_4"), (23, "golden_test_case_5")] {
+    for (seed, snapshot_name) in [
+        (13, "generator__golden_test_case_4"),
+        (23, "generator__golden_test_case_5"),
+    ] {
         let mut rng = Rng64::new(seed);
         let result = generate_rejection_solvable_board(
             &RejectionConfig {
@@ -135,7 +138,7 @@ fn golden_rejection_generation_for_bounded_official_seeds() {
             &result,
             Err(GeneratorError::ExhaustedAttempts { attempts: 2 })
         ));
-        write_rejection_case(&mut mint, file_name, seed, result);
+        assert_snapshot!(snapshot_name, rejection_snapshot(seed, result));
     }
 }
 

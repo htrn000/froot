@@ -1,3 +1,7 @@
+---
+source: tests/static_solvers.rs
+expression: "board_snapshot(\"fungster\", seed, &board)"
+---
 generator=fungster
 seed=23
 width=17

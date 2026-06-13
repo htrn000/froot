@@ -16,4 +16,4 @@ name = "fruitbox_bench"
 path = "src/bin/fruitbox_bench.rs"
 
 [dev-dependencies]
-goldenfile = "1.8.0"
+insta = "1.48.0"

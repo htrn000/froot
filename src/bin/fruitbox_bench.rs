@@ -80,7 +80,7 @@ struct FungsterArgs {
 
 #[derive(Clone, Debug, Args)]
 struct SolverArgs {
-    #[arg(long, default_value_t = 1_000)]
+    #[arg(long, default_value_t = 140)]
     max_states: usize,
     /// Stop exhaustive DP after this many empty-board solutions are encountered.
     #[arg(long)]

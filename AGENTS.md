@@ -47,6 +47,19 @@ sudo dockerd \
 
 Use `sudo docker ...` if the current user is not in the Docker group.
 
+## Commits
+
+This repo strictly uses [Conventional Commits](https://www.conventionalcommits.org/).
+Every commit message must follow the format:
+
+```
+<type>[optional scope]: <description>
+```
+
+Common types include `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, and
+`ci`. Use the imperative mood in the description (for example, `fix: handle
+empty input` rather than `fixed empty input`).
+
 ## Validation
 
 Run these checks before handing off changes:

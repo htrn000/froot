@@ -58,6 +58,9 @@ cargo run --release --bin fruitbox_bench --features no_instrument -- \
   --generator fungster
 ```
 
+Detailed profiler setup notes and the first profiling findings are documented in
+`docs/profiling.md`.
+
 The benchmark prints CSV rows for DFS single-solution candidates and the
 memoized exhaustive DP summary. Use `--generator random` for positive 17x10
 boards whose total sum is divisible by 10, or `--generator rejection` to keep

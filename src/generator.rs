@@ -257,7 +257,7 @@ fn tile_random_rectangles(config: &FungsterConfig, rng: &mut Rng64, cells: &mut 
     shuffle(rng, &mut candidates);
 
     for region in candidates {
-        fill_tuple_rect(config.width, rng, cells, region);
+        fill_rect_region(config.width, rng, cells, region);
         if tile_random_rectangles(config, rng, cells) {
             return true;
         }
@@ -299,7 +299,11 @@ fn candidate_rectangles(config: &FungsterConfig, cells: &[u8], x: usize, y: usiz
     candidates
 }
 
-fn fill_tuple_rect(board_width: usize, rng: &mut Rng64, cells: &mut [u8], region: Region) {
+fn fill_rect_region(board_width: usize, rng: &mut Rng64, cells: &mut [u8], region: Region) {
+    debug_assert!(region.area() > 0);
+    // A fungster iteration places apples into one rectangular partition tile;
+    // later iterations only need the remaining empty cells to still admit a
+    // valid rectangle partition, so random backtracking owns that choice here.
     let tuple = positive_tuple_sum(TARGET_SUM as u8, region.area(), rng);
     for (offset, value) in tuple.into_iter().enumerate() {
         let x = offset % region.width;

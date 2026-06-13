@@ -46,9 +46,9 @@ memoized exhaustive DP summary. Use `--generator random` for positive 17x10
 boards whose total sum is divisible by 10, or `--generator rejection` to keep
 sampling until the DFS candidate finds an empty-board solution. Prefer official
 17x10 grids for benchmark evidence; smaller grids are only for fast debugging
-or solver research iteration. The fungster generator uses the strip-hack
-variant by default; pass `--fungster-axis row` or `--fungster-axis column` to
-choose 1-height or 1-width sum-10 rectangles. Use
+or solver research iteration. The fungster generator recursively splits
+square-ish regions; pass `--fungster-axis row` or `--fungster-axis column` to
+choose the 1-height or 1-width fallback for uneven skinny regions. Use
 `--max-empty-solutions <n>` to let exhaustive DP stop after seeing `n`
 empty-board solutions and mark the CSV row as partial.
 

@@ -60,9 +60,9 @@ impl SplitMix64 {
 }
 
 #[derive(Clone, Debug)]
-/// Generates solvable-by-construction boards by tiling each row with small
-/// positive tuples that sum to 10. This models "fungster mode" without using 0
-/// as an initial apple score.
+/// Generates solvable-by-construction boards by recursively partitioning the
+/// full board into smaller rectangular regions. Small leaves become positive
+/// sum-10 tuples; skinny leftovers use the strip fallback selected by `axis`.
 pub struct FungsterConfig {
     pub width: usize,
     pub height: usize,
@@ -73,9 +73,9 @@ pub struct FungsterConfig {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-/// Strip-hack variant of fungster generation. Each generated tuple is still a
-/// rectangular sum-10 move, but the recursion is simplified to either 1-height
-/// row strips or 1-width column strips instead of arbitrary remaining regions.
+/// Preferred fallback when a remaining recursive region is too skinny to split
+/// into square-ish boxes. Each fallback tuple is still a rectangular sum-10
+/// move, but uses either 1-height row strips or 1-width column strips.
 pub enum FungsterAxis {
     Row,
     Column,
@@ -171,10 +171,17 @@ pub fn generate_fungster_board(
     }
 
     let mut cells = vec![0_u8; config.width * config.height];
-    match config.axis {
-        FungsterAxis::Row => fill_row_strips(config, rng, &mut cells)?,
-        FungsterAxis::Column => fill_column_strips(config, rng, &mut cells)?,
-    }
+    fill_region(
+        config,
+        rng,
+        &mut cells,
+        Region {
+            left: 0,
+            top: 0,
+            width: config.width,
+            height: config.height,
+        },
+    )?;
 
     Board::new(cells, config.width).map_err(GeneratorError::from)
 }
@@ -275,22 +282,162 @@ fn partition_line(
     Some(segments)
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct Region {
+    left: usize,
+    top: usize,
+    width: usize,
+    height: usize,
+}
+
+impl Region {
+    fn area(self) -> usize {
+        self.width * self.height
+    }
+}
+
+fn fill_region(
+    config: &FungsterConfig,
+    rng: &mut Rng64,
+    cells: &mut [u8],
+    region: Region,
+) -> Result<(), GeneratorError> {
+    let area = region.area();
+    if (config.min_tuple..=config.max_tuple).contains(&area) {
+        fill_tuple_rect(config.width, rng, cells, region);
+        return Ok(());
+    }
+
+    if area < config.min_tuple {
+        return Err(GeneratorError::InvalidConfig(
+            "region became smaller than the configured tuple minimum",
+        ));
+    }
+
+    if should_use_strip_fallback(config, region) {
+        return fill_strip_fallback(config, rng, cells, region);
+    }
+
+    let (first, second) = split_squareish(region, rng);
+    fill_region(config, rng, cells, first)?;
+    fill_region(config, rng, cells, second)
+}
+
+fn split_squareish(region: Region, rng: &mut Rng64) -> (Region, Region) {
+    if region.width > region.height {
+        let split = region.height;
+        (
+            Region {
+                width: split,
+                ..region
+            },
+            Region {
+                left: region.left + split,
+                width: region.width - split,
+                ..region
+            },
+        )
+    } else if region.height > region.width {
+        let split = region.width;
+        (
+            Region {
+                height: split,
+                ..region
+            },
+            Region {
+                top: region.top + split,
+                height: region.height - split,
+                ..region
+            },
+        )
+    } else if rng.range(0, 2) == 0 {
+        let split = squareish_split(region.width, rng);
+        (
+            Region {
+                width: split,
+                ..region
+            },
+            Region {
+                left: region.left + split,
+                width: region.width - split,
+                ..region
+            },
+        )
+    } else {
+        let split = squareish_split(region.height, rng);
+        (
+            Region {
+                height: split,
+                ..region
+            },
+            Region {
+                top: region.top + split,
+                height: region.height - split,
+                ..region
+            },
+        )
+    }
+}
+
+fn squareish_split(length: usize, rng: &mut Rng64) -> usize {
+    debug_assert!(length > 1);
+    let midpoint = length / 2;
+    let start = midpoint.saturating_sub(1).max(1);
+    let end = (midpoint + 2).min(length);
+    rng.range(start, end)
+}
+
+fn should_use_strip_fallback(config: &FungsterConfig, region: Region) -> bool {
+    region.width == 1
+        || region.height == 1
+        || (region.area() > config.max_tuple
+            && (region.width <= config.max_tuple || region.height <= config.max_tuple))
+}
+
+fn fill_strip_fallback(
+    config: &FungsterConfig,
+    rng: &mut Rng64,
+    cells: &mut [u8],
+    region: Region,
+) -> Result<(), GeneratorError> {
+    let preferred = match config.axis {
+        FungsterAxis::Row => fill_row_strips(config, rng, cells, region),
+        FungsterAxis::Column => fill_column_strips(config, rng, cells, region),
+    };
+    if preferred.is_ok() {
+        return preferred;
+    }
+
+    match config.axis {
+        FungsterAxis::Row => fill_column_strips(config, rng, cells, region),
+        FungsterAxis::Column => fill_row_strips(config, rng, cells, region),
+    }
+}
+
 fn fill_row_strips(
     config: &FungsterConfig,
     rng: &mut Rng64,
     cells: &mut [u8],
+    region: Region,
 ) -> Result<(), GeneratorError> {
-    for y in 0..config.height {
-        let segments = partition_line(config.width, config.min_tuple, config.max_tuple, rng)
+    for y in region.top..region.top + region.height {
+        let segments = partition_line(region.width, config.min_tuple, config.max_tuple, rng)
             .ok_or(GeneratorError::InvalidConfig(
                 "width cannot be tiled by the configured tuple bounds",
             ))?;
-        let mut left = 0;
+        let mut left = region.left;
         for segment_len in segments {
-            let tuple = positive_tuple_sum(TARGET_SUM as u8, segment_len, rng);
-            for (offset, value) in tuple.into_iter().enumerate() {
-                cells[y * config.width + left + offset] = value;
-            }
+            fill_tuple_rect(
+                config.width,
+                rng,
+                cells,
+                Region {
+                    left,
+                    top: y,
+                    width: segment_len,
+                    height: 1,
+                },
+            );
             left += segment_len;
         }
     }
@@ -301,22 +448,39 @@ fn fill_column_strips(
     config: &FungsterConfig,
     rng: &mut Rng64,
     cells: &mut [u8],
+    region: Region,
 ) -> Result<(), GeneratorError> {
-    for x in 0..config.width {
-        let segments = partition_line(config.height, config.min_tuple, config.max_tuple, rng)
+    for x in region.left..region.left + region.width {
+        let segments = partition_line(region.height, config.min_tuple, config.max_tuple, rng)
             .ok_or(GeneratorError::InvalidConfig(
                 "height cannot be tiled by the configured tuple bounds",
             ))?;
-        let mut top = 0;
+        let mut top = region.top;
         for segment_len in segments {
-            let tuple = positive_tuple_sum(TARGET_SUM as u8, segment_len, rng);
-            for (offset, value) in tuple.into_iter().enumerate() {
-                cells[(top + offset) * config.width + x] = value;
-            }
+            fill_tuple_rect(
+                config.width,
+                rng,
+                cells,
+                Region {
+                    left: x,
+                    top,
+                    width: 1,
+                    height: segment_len,
+                },
+            );
             top += segment_len;
         }
     }
     Ok(())
+}
+
+fn fill_tuple_rect(board_width: usize, rng: &mut Rng64, cells: &mut [u8], region: Region) {
+    let tuple = positive_tuple_sum(TARGET_SUM as u8, region.area(), rng);
+    for (offset, value) in tuple.into_iter().enumerate() {
+        let x = offset % region.width;
+        let y = offset / region.width;
+        cells[(region.top + y) * board_width + region.left + x] = value;
+    }
 }
 
 fn positive_tuple_sum(target: u8, len: usize, rng: &mut Rng64) -> Vec<u8> {

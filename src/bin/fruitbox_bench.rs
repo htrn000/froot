@@ -20,8 +20,8 @@ enum GeneratorKind {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
-/// Fungster's simplified construction can recurse through horizontal or
-/// vertical strips; exposing this keeps both hack variants benchmarkable.
+/// Preferred strip fallback for skinny regions during recursive fungster
+/// construction; normal regions still split into square-ish boxes.
 enum FungsterAxisArg {
     Row,
     Column,

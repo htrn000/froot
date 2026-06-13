@@ -41,6 +41,10 @@ impl Mask {
         self.0[index / 64] |= 1_u64 << (index % 64);
     }
 
+    pub fn contains(self, index: usize) -> bool {
+        self.0[index / 64] & (1_u64 << (index % 64)) != 0
+    }
+
     pub fn and(self, other: Self) -> Self {
         let mut words = [0; MASK_WORDS];
         for (index, word) in words.iter_mut().enumerate() {
@@ -96,6 +100,9 @@ pub struct Board {
     live_mask: Mask,
     digit_masks: [Mask; 10],
     rectangles: Vec<Rectangle>,
+    rectangles_by_cell: Vec<Vec<usize>>,
+    initial_rectangle_sums: Vec<u16>,
+    initial_rectangle_counts: Vec<u16>,
 }
 
 impl Board {
@@ -131,6 +138,8 @@ impl Board {
         }
 
         let rectangles = build_rectangles(width, height)?;
+        let (rectangles_by_cell, initial_rectangle_sums, initial_rectangle_counts) =
+            build_rectangle_indexes(&cells, width, &rectangles);
 
         Ok(Self {
             width,
@@ -139,6 +148,9 @@ impl Board {
             live_mask,
             digit_masks,
             rectangles,
+            rectangles_by_cell,
+            initial_rectangle_sums,
+            initial_rectangle_counts,
         })
     }
 
@@ -160,6 +172,18 @@ impl Board {
 
     pub fn rectangles(&self) -> &[Rectangle] {
         &self.rectangles
+    }
+
+    pub fn rectangles_by_cell(&self) -> &[Vec<usize>] {
+        &self.rectangles_by_cell
+    }
+
+    pub fn initial_rectangle_sums(&self) -> &[u16] {
+        &self.initial_rectangle_sums
+    }
+
+    pub fn initial_rectangle_counts(&self) -> &[u16] {
+        &self.initial_rectangle_counts
     }
 
     pub fn live_sum(&self, state: Mask, rectangle: Rectangle) -> u16 {
@@ -262,4 +286,33 @@ fn build_rectangles(width: usize, height: usize) -> Result<Vec<Rectangle>, Board
     }
 
     Ok(rectangles)
+}
+
+fn build_rectangle_indexes(
+    cells: &[u8],
+    width: usize,
+    rectangles: &[Rectangle],
+) -> (Vec<Vec<usize>>, Vec<u16>, Vec<u16>) {
+    let mut rectangles_by_cell = vec![Vec::new(); cells.len()];
+    let mut initial_rectangle_sums = vec![0_u16; rectangles.len()];
+    let mut initial_rectangle_counts = vec![0_u16; rectangles.len()];
+
+    for (rect_id, rectangle) in rectangles.iter().enumerate() {
+        for y in rectangle.top..=rectangle.bottom {
+            for x in rectangle.left..=rectangle.right {
+                let cell_index = y * width + x;
+                rectangles_by_cell[cell_index].push(rect_id);
+                initial_rectangle_sums[rect_id] += cells[cell_index] as u16;
+                if cells[cell_index] > 0 {
+                    initial_rectangle_counts[rect_id] += 1;
+                }
+            }
+        }
+    }
+
+    (
+        rectangles_by_cell,
+        initial_rectangle_sums,
+        initial_rectangle_counts,
+    )
 }

@@ -94,3 +94,32 @@ The new profiling stack should make these iterations faster:
 
 - flamegraphs answer "which stack dominates now?";
 - candidate profile logs answer "what shape of candidate workload are we seeing?".
+
+## Follow-up: incremental DFS transition state
+
+The DFS witness paths now maintain per-rectangle live sums/counts and exact
+sum-10 candidate buckets during backtracking. This removes repeated
+`live_sum` scans from `solve_first_empty` and `has_empty_solution`; exhaustive
+DP still uses the mask-state transition path.
+
+Post-change smoke measurement:
+
+- fungster / `dfs_first_largest` (`max-states=1000`):
+  - `calls=1000`
+  - `total_candidates=109366`
+  - `collect_time_us=819`
+  - `sort_time_us=0`
+- fungster / `dfs_first_smallest`:
+  - `calls=66`
+  - `total_candidates=13991`
+  - `collect_time_us=73`
+  - `sort_time_us=0`
+
+Thirty-board release benchmarks with `max-states=1000` and
+`max-empty-solutions=1`:
+
+- `fungster`: `wall_seconds=31.568`
+- `random`: `wall_seconds=18.012`
+
+The remaining wall time is mostly failed largest-first DFS branches and
+exhaustive DP state-limit paths, not candidate sorting.

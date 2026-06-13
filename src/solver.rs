@@ -23,7 +23,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use crate::board::{Board, Mask, Rectangle, TARGET_SUM};
+use crate::board::{Board, Mask, TARGET_SUM};
 
 #[derive(Clone, Copy, Debug)]
 /// Bounds intentionally live outside each solver so benchmark runs can compare
@@ -312,20 +312,12 @@ pub fn has_empty_solution(
     limits: SolverLimits,
 ) -> Result<EmptySearchResult, SearchError> {
     let started = Instant::now();
-    let mut dead_states = HashSet::new();
-    let mut states_evaluated = 0;
-    let empty_solvable = dfs_has_empty(
-        board,
-        board.initial_state(),
-        ordering,
-        limits,
-        &mut dead_states,
-        &mut states_evaluated,
-    )?;
+    let mut search = IncrementalSearch::new(board, ordering);
+    let empty_solvable = search.has_empty_solution(limits)?;
 
     Ok(EmptySearchResult {
         empty_solvable,
-        states_evaluated,
+        states_evaluated: search.states_evaluated,
         elapsed: started.elapsed(),
     })
 }
@@ -336,18 +328,9 @@ pub fn solve_first_empty(
     limits: SolverLimits,
 ) -> Result<SingleSolution, SearchError> {
     let started = Instant::now();
-    let mut dead_states = HashSet::new();
+    let mut search = IncrementalSearch::new(board, ordering);
     let mut moves = Vec::new();
-    let mut states_evaluated = 0;
-    let solved = dfs_first_empty(
-        board,
-        board.initial_state(),
-        ordering,
-        limits,
-        &mut dead_states,
-        &mut moves,
-        &mut states_evaluated,
-    )?;
+    let solved = search.first_empty(limits, &mut moves)?;
     let score = moves.iter().map(|(_, _, _, _, score)| *score).sum();
     let move_coords: Vec<(usize, usize, usize, usize)> = moves
         .into_iter()
@@ -359,7 +342,7 @@ pub fn solve_first_empty(
         score,
         steps: solved.then_some(move_coords_len(&move_coords)),
         moves: move_coords,
-        states_evaluated,
+        states_evaluated: search.states_evaluated,
         elapsed: started.elapsed(),
     })
 }
@@ -452,104 +435,190 @@ fn solution_limit_reached(empty_solutions_seen: u128, limits: SolverLimits) -> b
         .is_some_and(|limit| empty_solutions_seen >= limit)
 }
 
-fn dfs_has_empty(
-    board: &Board,
-    state: Mask,
+struct IncrementalSearch<'a> {
+    board: &'a Board,
     ordering: MoveOrdering,
-    limits: SolverLimits,
-    dead_states: &mut HashSet<Mask>,
-    states_evaluated: &mut usize,
-) -> Result<bool, SearchError> {
-    if state.is_empty() {
-        return Ok(true);
-    }
-    if dead_states.contains(&state) {
-        return Ok(false);
-    }
-    if *states_evaluated >= limits.max_states {
-        return Err(SearchError::StateLimitExceeded {
-            max_states: limits.max_states,
-        });
-    }
-    *states_evaluated += 1;
+    state: Mask,
+    rectangle_sums: Vec<u16>,
+    rectangle_counts: Vec<u16>,
+    sum10_buckets: Vec<Vec<usize>>,
+    bucket_positions: Vec<Option<(usize, usize)>>,
+    dead_states: HashSet<Mask>,
+    states_evaluated: usize,
+}
 
-    for rectangle in ordered_candidates(board, state, ordering) {
-        if dfs_has_empty(
+impl<'a> IncrementalSearch<'a> {
+    fn new(board: &'a Board, ordering: MoveOrdering) -> Self {
+        let rectangle_sums = board.initial_rectangle_sums().to_vec();
+        let rectangle_counts = board.initial_rectangle_counts().to_vec();
+        let mut search = Self {
             board,
-            board.apply(state, rectangle),
             ordering,
-            limits,
-            dead_states,
-            states_evaluated,
-        )? {
+            state: board.initial_state(),
+            rectangle_sums,
+            rectangle_counts,
+            sum10_buckets: vec![Vec::new(); board.cells().len() + 1],
+            bucket_positions: vec![None; board.rectangles().len()],
+            dead_states: HashSet::new(),
+            states_evaluated: 0,
+        };
+        for rect_id in 0..search.rectangle_sums.len() {
+            search.update_bucket(rect_id);
+        }
+        search
+    }
+
+    fn has_empty_solution(&mut self, limits: SolverLimits) -> Result<bool, SearchError> {
+        if self.state.is_empty() {
             return Ok(true);
+        }
+        if self.dead_states.contains(&self.state) {
+            return Ok(false);
+        }
+        self.check_state_limit(limits)?;
+        self.states_evaluated += 1;
+
+        for rect_id in self.ordered_candidate_ids() {
+            let undo = self.apply_rect(rect_id);
+            if self.has_empty_solution(limits)? {
+                self.undo_rect(undo);
+                return Ok(true);
+            }
+            self.undo_rect(undo);
+        }
+
+        self.dead_states.insert(self.state);
+        Ok(false)
+    }
+
+    fn first_empty(
+        &mut self,
+        limits: SolverLimits,
+        moves: &mut Vec<(usize, usize, usize, usize, u16)>,
+    ) -> Result<bool, SearchError> {
+        if self.state.is_empty() {
+            return Ok(true);
+        }
+        if self.dead_states.contains(&self.state) {
+            return Ok(false);
+        }
+        self.check_state_limit(limits)?;
+        self.states_evaluated += 1;
+
+        for rect_id in self.ordered_candidate_ids() {
+            let rectangle = self.board.rectangles()[rect_id];
+            let score = self.rectangle_counts[rect_id];
+            moves.push((
+                rectangle.left,
+                rectangle.top,
+                rectangle.right,
+                rectangle.bottom,
+                score,
+            ));
+            let undo = self.apply_rect(rect_id);
+            if self.first_empty(limits, moves)? {
+                self.undo_rect(undo);
+                return Ok(true);
+            }
+            self.undo_rect(undo);
+            moves.pop();
+        }
+
+        self.dead_states.insert(self.state);
+        Ok(false)
+    }
+
+    fn check_state_limit(&self, limits: SolverLimits) -> Result<(), SearchError> {
+        if self.states_evaluated >= limits.max_states {
+            return Err(SearchError::StateLimitExceeded {
+                max_states: limits.max_states,
+            });
+        }
+        Ok(())
+    }
+
+    fn ordered_candidate_ids(&mut self) -> Vec<usize> {
+        let profiling_enabled = candidate_profile_enabled();
+        let collect_started = profiling_enabled.then(Instant::now);
+        let mut candidates = Vec::new();
+        let counts: Box<dyn Iterator<Item = usize>> = match self.ordering {
+            MoveOrdering::SmallestScoreFirst => Box::new(1..self.sum10_buckets.len()),
+            MoveOrdering::LargestScoreFirst => Box::new((1..self.sum10_buckets.len()).rev()),
+        };
+
+        for count in counts {
+            for &rect_id in &self.sum10_buckets[count] {
+                candidates.push(rect_id);
+            }
+        }
+        let collect_ns = collect_started.map_or(0, |started| started.elapsed().as_nanos());
+        record_candidate_profile(candidates.len(), collect_ns, 0);
+        candidates
+    }
+
+    fn apply_rect(&mut self, rect_id: usize) -> MoveUndo {
+        let rectangle = self.board.rectangles()[rect_id];
+        let previous_state = self.state;
+        let mut removed_cells = Vec::new();
+
+        for y in rectangle.top..=rectangle.bottom {
+            for x in rectangle.left..=rectangle.right {
+                let cell_id = y * self.board.width() + x;
+                if self.state.contains(cell_id) {
+                    removed_cells.push(cell_id);
+                    for &affected_rect_id in &self.board.rectangles_by_cell()[cell_id] {
+                        self.rectangle_sums[affected_rect_id] -= self.board.cells()[cell_id] as u16;
+                        self.rectangle_counts[affected_rect_id] -= 1;
+                        self.update_bucket(affected_rect_id);
+                    }
+                }
+            }
+        }
+        self.state = self.state.and_not(rectangle.mask);
+        MoveUndo {
+            previous_state,
+            removed_cells,
         }
     }
 
-    dead_states.insert(state);
-    Ok(false)
-}
-
-fn dfs_first_empty(
-    board: &Board,
-    state: Mask,
-    ordering: MoveOrdering,
-    limits: SolverLimits,
-    dead_states: &mut HashSet<Mask>,
-    moves: &mut Vec<(usize, usize, usize, usize, u16)>,
-    states_evaluated: &mut usize,
-) -> Result<bool, SearchError> {
-    if state.is_empty() {
-        return Ok(true);
-    }
-    if dead_states.contains(&state) {
-        return Ok(false);
-    }
-    if *states_evaluated >= limits.max_states {
-        return Err(SearchError::StateLimitExceeded {
-            max_states: limits.max_states,
-        });
-    }
-    *states_evaluated += 1;
-
-    for rectangle in ordered_candidates(board, state, ordering) {
-        let score = board.live_score(state, rectangle);
-        moves.push((
-            rectangle.left,
-            rectangle.top,
-            rectangle.right,
-            rectangle.bottom,
-            score,
-        ));
-        if dfs_first_empty(
-            board,
-            board.apply(state, rectangle),
-            ordering,
-            limits,
-            dead_states,
-            moves,
-            states_evaluated,
-        )? {
-            return Ok(true);
+    fn undo_rect(&mut self, undo: MoveUndo) {
+        for cell_id in undo.removed_cells {
+            for &affected_rect_id in &self.board.rectangles_by_cell()[cell_id] {
+                self.rectangle_sums[affected_rect_id] += self.board.cells()[cell_id] as u16;
+                self.rectangle_counts[affected_rect_id] += 1;
+                self.update_bucket(affected_rect_id);
+            }
         }
-        moves.pop();
+        self.state = undo.previous_state;
     }
 
-    dead_states.insert(state);
-    Ok(false)
+    fn update_bucket(&mut self, rect_id: usize) {
+        self.remove_from_bucket(rect_id);
+        if self.rectangle_sums[rect_id] == TARGET_SUM {
+            let count = self.rectangle_counts[rect_id] as usize;
+            if count > 0 {
+                let position = self.sum10_buckets[count].len();
+                self.sum10_buckets[count].push(rect_id);
+                self.bucket_positions[rect_id] = Some((count, position));
+            }
+        }
+    }
+
+    fn remove_from_bucket(&mut self, rect_id: usize) {
+        let Some((count, position)) = self.bucket_positions[rect_id].take() else {
+            return;
+        };
+        let bucket = &mut self.sum10_buckets[count];
+        let removed = bucket.swap_remove(position);
+        debug_assert_eq!(removed, rect_id);
+        if position < bucket.len() {
+            let moved = bucket[position];
+            self.bucket_positions[moved] = Some((count, position));
+        }
+    }
 }
 
-fn ordered_candidates(board: &Board, state: Mask, ordering: MoveOrdering) -> Vec<Rectangle> {
-    let profiling_enabled = candidate_profile_enabled();
-    let collect_started = profiling_enabled.then(Instant::now);
-    let mut candidates: Vec<Rectangle> = board.valid_moves(state, TARGET_SUM).collect();
-    let collect_ns = collect_started.map_or(0, |started| started.elapsed().as_nanos());
-    let sort_started = profiling_enabled.then(Instant::now);
-    candidates.sort_by_key(|rectangle| board.live_score(state, *rectangle));
-    if ordering == MoveOrdering::LargestScoreFirst {
-        candidates.reverse();
-    }
-    let sort_ns = sort_started.map_or(0, |started| started.elapsed().as_nanos());
-    record_candidate_profile(candidates.len(), collect_ns, sort_ns);
-    candidates
+struct MoveUndo {
+    previous_state: Mask,
+    removed_cells: Vec<usize>,
 }

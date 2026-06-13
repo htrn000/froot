@@ -30,6 +30,12 @@ enum FungsterPartitionArg {
     RandomBacktracking,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum SolverPresetArg {
+    Iteration,
+    Benchmark,
+}
+
 #[derive(Clone, Debug, Parser)]
 #[command(about = "Benchmark static Fruitbox solvers on generated boards")]
 /// Clap-owned benchmark configuration. Keeping defaults here makes the binary
@@ -80,8 +86,12 @@ struct FungsterArgs {
 
 #[derive(Clone, Debug, Args)]
 struct SolverArgs {
-    #[arg(long, default_value_t = 140)]
-    max_states: usize,
+    /// Preset state budgets: iteration=140, benchmark=2000.
+    #[arg(long, value_enum, default_value = "benchmark")]
+    solver_preset: SolverPresetArg,
+    /// Override the selected solver preset state budget.
+    #[arg(long)]
+    max_states: Option<usize>,
     /// Stop exhaustive DP after this many empty-board solutions are encountered.
     #[arg(long)]
     max_empty_solutions: Option<u128>,
@@ -157,6 +167,13 @@ fn flamegraph_settings(config: &Config) -> FlamegraphSettings {
     )
 }
 
+fn effective_max_states(config: &Config) -> usize {
+    config.solver.max_states.unwrap_or(match config.solver.solver_preset {
+        SolverPresetArg::Iteration => 140,
+        SolverPresetArg::Benchmark => 2_000,
+    })
+}
+
 fn build_board(config: &Config, rng: &mut Rng64) -> Result<Board, String> {
     match config.generation.generator {
         GeneratorKind::Fungster => generate_fungster_board(
@@ -185,7 +202,7 @@ fn build_board(config: &Config, rng: &mut Rng64) -> Result<Board, String> {
                 height: config.board.height,
                 max_attempts: config.generation.max_attempts,
                 solver_limits: SolverLimits {
-                    max_states: config.solver.max_states,
+                    max_states: effective_max_states(config),
                     max_empty_solutions: config.solver.max_empty_solutions,
                 },
             },
@@ -225,7 +242,7 @@ fn run_approaches(sample: usize, config: &Config, board: &Board) {
     let generator = generator_name(config.generation.generator);
     let total_sum: u16 = board.cells().iter().map(|cell| *cell as u16).sum();
     let limits = SolverLimits {
-        max_states: config.solver.max_states,
+        max_states: effective_max_states(config),
         max_empty_solutions: config.solver.max_empty_solutions,
     };
     let flamegraph = flamegraph_settings(config);

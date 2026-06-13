@@ -72,8 +72,10 @@ mixed horizontal/vertical strip partition, while `random-backtracking` randomly
 tiles valid rectangular sum-10 moves and restarts if it gets stuck. Use
 `--max-empty-solutions <n>` to let exhaustive DP stop after seeing `n`
 empty-board solutions and mark the CSV row as partial. Solver benchmarks
-default to `--max-states 140`, which keeps 30-board DFS benchmark runs near a
-couple seconds on the current cloud VM; raise it explicitly for deeper searches.
+default to `--solver-preset benchmark` (`--max-states 2000`), which keeps
+30-board runs around a minute on the current cloud VM; use
+`--solver-preset iteration` for the faster 140-state iteration preset, or pass
+`--max-states <n>` to override either preset.
 
 ## Docker Compose
 

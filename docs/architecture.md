@@ -44,6 +44,8 @@ kept server-side at first and exposed as an online bot mode.
 
 ## Current scaffold
 
+- `frontend/`: Vite TypeScript PWA-oriented game UI with a DOM grid renderer.
+- `frontend/src/game/`: pure game engine and client-side solver mirror for headless play.
 - `python/fruitbox_api`: FastAPI app, config, request/response models, routes.
 - `python/fruitbox_core`: Python import wrapper for the maturin extension.
 - `src/lib.rs`: Rust/PyO3 game-core primitive for finding target-sum rectangles.

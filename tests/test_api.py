@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from fruitbox_api.app import create_app
+from fruitbox_api.app import FRONTEND_DIST, create_app
 from fruitbox_core import find_sum_rectangles
 
 
@@ -55,3 +55,14 @@ def test_static_solver_validates_board_shape() -> None:
 
 def test_rust_core_finds_sum_rectangles() -> None:
     assert (0, 0, 1, 0) in find_sum_rectangles([1, 9, 4, 6], 2, 10)
+
+
+def test_frontend_index_is_served_when_built() -> None:
+    if not FRONTEND_DIST.exists():
+        return
+
+    client = TestClient(create_app())
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "Fruitbox" in response.text

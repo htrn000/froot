@@ -109,7 +109,7 @@ struct OutputArgs {
 
 fn main() -> ExitCode {
     let config = Config::parse();
-    set_candidate_profile_enabled(config.candidate_profile);
+    set_candidate_profile_enabled(config.output.candidate_profile);
     if !instrumentation_available() && wants_instrumentation(&config) {
         eprintln!(
             "[fruitbox_bench] event=instrumentation_disabled reason=compiled_with_no_instrument"
@@ -147,11 +147,14 @@ fn should_run_solvers(config: &Config) -> bool {
 }
 
 fn wants_instrumentation(config: &Config) -> bool {
-    config.candidate_profile || config.flamegraph_dir.is_some()
+    config.output.candidate_profile || config.output.flamegraph_dir.is_some()
 }
 
 fn flamegraph_settings(config: &Config) -> FlamegraphSettings {
-    FlamegraphSettings::from_parts(config.flamegraph_dir.clone(), config.flamegraph_frequency)
+    FlamegraphSettings::from_parts(
+        config.output.flamegraph_dir.clone(),
+        config.output.flamegraph_frequency,
+    )
 }
 
 fn build_board(config: &Config, rng: &mut Rng64) -> Result<Board, String> {
@@ -232,7 +235,7 @@ fn run_approaches(sample: usize, config: &Config, board: &Board) {
         ("dfs_first_largest", MoveOrdering::LargestScoreFirst),
         ("dfs_first_smallest", MoveOrdering::SmallestScoreFirst),
     ] {
-        if config.candidate_profile {
+        if config.output.candidate_profile {
             reset_candidate_profile();
         }
         eprintln!("[fruitbox_bench] sample={sample} approach={name} event=start");
@@ -265,7 +268,7 @@ fn run_approaches(sample: usize, config: &Config, board: &Board) {
                 print_search_error(sample, generator, name, board, total_sum, error);
             }
         }
-        if config.candidate_profile {
+        if config.output.candidate_profile {
             trace_candidate_profile(sample, name);
         }
     }

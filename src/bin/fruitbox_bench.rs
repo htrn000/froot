@@ -30,14 +30,12 @@ enum FungsterPartitionArg {
 /// Clap-owned benchmark configuration. Keeping defaults here makes the binary
 /// the reproducible entry point for timing and state-count comparisons.
 struct Config {
-    #[command(flatten, next_help_heading = "Generation")]
+    #[command(flatten)]
     generation: GenerationArgs,
-    #[command(flatten, next_help_heading = "Board")]
+    #[command(flatten)]
     board: BoardArgs,
     #[command(flatten, next_help_heading = "Fungster")]
     fungster: FungsterArgs,
-    #[command(flatten, next_help_heading = "Rejection")]
-    rejection: RejectionArgs,
     #[command(flatten, next_help_heading = "Solver")]
     solver: SolverArgs,
     #[command(flatten, next_help_heading = "Output")]
@@ -52,6 +50,9 @@ struct GenerationArgs {
     samples: usize,
     #[arg(long, default_value_t = 1)]
     seed: u64,
+    /// Generation retry budget used by modes that can retry candidate boards.
+    #[arg(long, alias = "groups", default_value_t = 32)]
+    max_attempts: usize,
 }
 
 #[derive(Clone, Debug, Args)]
@@ -64,21 +65,12 @@ struct BoardArgs {
 
 #[derive(Clone, Debug, Args)]
 struct FungsterArgs {
-    /// Full-board random tiling restarts for fungster generation.
-    #[arg(long, alias = "groups", default_value_t = 32)]
-    fungster_attempts: usize,
     #[arg(long, value_enum, default_value = "straight-strips")]
     fungster_partition: FungsterPartitionArg,
     #[arg(long, default_value_t = 2)]
     min_tuple: usize,
     #[arg(long, default_value_t = 4)]
     max_tuple: usize,
-}
-
-#[derive(Clone, Debug, Args)]
-struct RejectionArgs {
-    #[arg(long, default_value_t = 100)]
-    max_attempts: usize,
 }
 
 #[derive(Clone, Debug, Args)]
@@ -140,7 +132,7 @@ fn build_board(config: &Config, rng: &mut Rng64) -> Result<Board, String> {
             &FungsterConfig {
                 width: config.board.width,
                 height: config.board.height,
-                attempts: config.fungster.fungster_attempts,
+                attempts: config.generation.max_attempts,
                 min_tuple: config.fungster.min_tuple,
                 max_tuple: config.fungster.max_tuple,
                 partition_strategy: config.fungster.fungster_partition.into(),
@@ -160,7 +152,7 @@ fn build_board(config: &Config, rng: &mut Rng64) -> Result<Board, String> {
             &RejectionConfig {
                 width: config.board.width,
                 height: config.board.height,
-                max_attempts: config.rejection.max_attempts,
+                max_attempts: config.generation.max_attempts,
                 solver_limits: SolverLimits {
                     max_states: config.solver.max_states,
                     max_empty_solutions: config.solver.max_empty_solutions,

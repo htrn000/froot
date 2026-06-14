@@ -1,6 +1,8 @@
 use crate::board::{Board, BoardError, TARGET_SUM};
 use crate::solver::{has_empty_solution, MoveOrdering, SearchError, SolverLimits};
 
+pub const MAX_FUNGSTER_TUPLE: usize = 6;
+
 #[derive(Clone, Debug)]
 /// Deterministic RNG for reproducible benchmark boards. It keeps a 256-bit
 /// xorshift state, while accepting a simple `u64` seed for CLI ergonomics.
@@ -69,7 +71,24 @@ pub struct FungsterConfig {
     pub attempts: usize,
     pub min_tuple: usize,
     pub max_tuple: usize,
+    pub fallback_min_tuple: usize,
+    pub target_tuple_sampling: TupleTargetSampling,
     pub partition_strategy: FungsterPartitionStrategy,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TupleTargetSampling {
+    Max,
+    Uniform,
+    Difficulty(TupleDifficulty),
+    Weights(Vec<u32>),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TupleDifficulty {
+    Easy,
+    Normal,
+    Hard,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -86,6 +105,8 @@ impl Default for FungsterConfig {
             attempts: 32,
             min_tuple: 2,
             max_tuple: 4,
+            fallback_min_tuple: 2,
+            target_tuple_sampling: TupleTargetSampling::Max,
             partition_strategy: FungsterPartitionStrategy::StraightStrips,
         }
     }
@@ -156,17 +177,151 @@ pub fn generate_fungster_board(
     config: &FungsterConfig,
     rng: &mut Rng64,
 ) -> Result<Board, GeneratorError> {
+    validate_fungster_config(config)?;
+    let target_tuple = sample_fungster_target_tuple_unchecked(config, rng)?;
+    attempt_tuple_targets(
+        target_tuple,
+        config.fallback_min_tuple,
+        |effective_max_tuple| {
+            let mut effective_config = config.clone();
+            effective_config.max_tuple = effective_max_tuple;
+            generate_fungster_board_once(&effective_config, rng)
+        },
+    )
+}
+
+pub fn sample_fungster_target_tuple(
+    config: &FungsterConfig,
+    rng: &mut Rng64,
+) -> Result<usize, GeneratorError> {
+    validate_fungster_config(config)?;
+    sample_fungster_target_tuple_unchecked(config, rng)
+}
+
+fn validate_fungster_config(config: &FungsterConfig) -> Result<(), GeneratorError> {
     if config.width == 0 || config.height == 0 {
         return Err(GeneratorError::InvalidConfig(
             "width and height must be positive",
         ));
     }
-    if config.min_tuple < 2 || config.min_tuple > config.max_tuple || config.max_tuple > 10 {
+    if config.min_tuple < 2
+        || config.min_tuple > config.max_tuple
+        || config.max_tuple > MAX_FUNGSTER_TUPLE
+    {
         return Err(GeneratorError::InvalidConfig(
-            "tuple bounds must satisfy 2 <= min_tuple <= max_tuple <= 10",
+            "tuple bounds must satisfy 2 <= min_tuple <= max_tuple <= 6",
+        ));
+    }
+    if config.fallback_min_tuple < config.min_tuple || config.fallback_min_tuple > config.max_tuple
+    {
+        return Err(GeneratorError::InvalidConfig(
+            "fallback_min_tuple must satisfy min_tuple <= fallback_min_tuple <= max_tuple",
+        ));
+    }
+    if let TupleTargetSampling::Weights(weights) = &config.target_tuple_sampling {
+        let expected = config.max_tuple - config.min_tuple + 1;
+        if weights.len() != expected {
+            return Err(GeneratorError::InvalidConfig(
+                "tuple weights must include one weight for each configured tuple value",
+            ));
+        }
+        let fallback_offset = config.fallback_min_tuple - config.min_tuple;
+        if weights[fallback_offset..].iter().all(|weight| *weight == 0) {
+            return Err(GeneratorError::InvalidConfig(
+                "tuple weights must include at least one positive weight at or above fallback_min_tuple",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn sample_fungster_target_tuple_unchecked(
+    config: &FungsterConfig,
+    rng: &mut Rng64,
+) -> Result<usize, GeneratorError> {
+    match &config.target_tuple_sampling {
+        TupleTargetSampling::Max => Ok(config.max_tuple),
+        TupleTargetSampling::Uniform => {
+            Ok(rng.range(config.fallback_min_tuple, config.max_tuple + 1))
+        }
+        TupleTargetSampling::Difficulty(difficulty) => {
+            let weights = (config.fallback_min_tuple..=config.max_tuple)
+                .map(|tuple| {
+                    difficulty_weight(*difficulty, config.min_tuple, config.max_tuple, tuple)
+                })
+                .collect::<Vec<_>>();
+            weighted_tuple_sample(config.fallback_min_tuple, &weights, rng)
+        }
+        TupleTargetSampling::Weights(weights) => {
+            let fallback_offset = config.fallback_min_tuple - config.min_tuple;
+            weighted_tuple_sample(config.fallback_min_tuple, &weights[fallback_offset..], rng)
+        }
+    }
+}
+
+fn difficulty_weight(
+    difficulty: TupleDifficulty,
+    min_tuple: usize,
+    max_tuple: usize,
+    tuple: usize,
+) -> u32 {
+    match difficulty {
+        TupleDifficulty::Easy => (max_tuple - tuple + 1) as u32,
+        TupleDifficulty::Normal => 1,
+        TupleDifficulty::Hard => {
+            let rank = (tuple - min_tuple + 1) as u32;
+            rank * rank
+        }
+    }
+}
+
+fn weighted_tuple_sample(
+    min_tuple: usize,
+    weights: &[u32],
+    rng: &mut Rng64,
+) -> Result<usize, GeneratorError> {
+    let total = weights.iter().map(|weight| *weight as u64).sum::<u64>();
+    if total == 0 {
+        return Err(GeneratorError::InvalidConfig(
+            "tuple weights must include at least one positive weight",
         ));
     }
 
+    let mut pick = rng.next_u64() % total;
+    for (offset, weight) in weights.iter().enumerate() {
+        let weight = *weight as u64;
+        if pick < weight {
+            return Ok(min_tuple + offset);
+        }
+        pick -= weight;
+    }
+    Ok(min_tuple + weights.len() - 1)
+}
+
+fn attempt_tuple_targets<T, F>(
+    target_tuple: usize,
+    fallback_min_tuple: usize,
+    mut attempt: F,
+) -> Result<T, GeneratorError>
+where
+    F: FnMut(usize) -> Result<T, GeneratorError>,
+{
+    let mut last_error = None;
+    for effective_max_tuple in (fallback_min_tuple..=target_tuple).rev() {
+        match attempt(effective_max_tuple) {
+            Ok(value) => return Ok(value),
+            Err(error) if error.is_tuple_retryable() => last_error = Some(error),
+            Err(error) => return Err(error),
+        }
+    }
+
+    Err(last_error.unwrap_or(GeneratorError::ExhaustedAttempts { attempts: 0 }))
+}
+
+fn generate_fungster_board_once(
+    config: &FungsterConfig,
+    rng: &mut Rng64,
+) -> Result<Board, GeneratorError> {
     match config.partition_strategy {
         FungsterPartitionStrategy::StraightStrips => {
             let mut cells = vec![0_u8; config.width * config.height];
@@ -185,6 +340,17 @@ pub fn generate_fungster_board(
                 attempts: config.attempts.max(1),
             })
         }
+    }
+}
+
+impl GeneratorError {
+    fn is_tuple_retryable(&self) -> bool {
+        matches!(
+            self,
+            Self::ExhaustedAttempts { .. }
+                | Self::InvalidConfig("width cannot be tiled by the configured tuple bounds")
+                | Self::InvalidConfig("height cannot be tiled by the configured tuple bounds")
+        )
     }
 }
 
@@ -468,4 +634,75 @@ fn positive_tuple_sum(target: u8, len: usize, rng: &mut Rng64) -> Vec<u8> {
         values.swap(index, swap);
     }
     values
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fungster_tuple_validation_caps_targets_at_six() {
+        let mut config = FungsterConfig {
+            max_tuple: MAX_FUNGSTER_TUPLE,
+            ..FungsterConfig::default()
+        };
+        assert_eq!(validate_fungster_config(&config), Ok(()));
+
+        config.max_tuple = MAX_FUNGSTER_TUPLE + 1;
+        assert_eq!(
+            validate_fungster_config(&config),
+            Err(GeneratorError::InvalidConfig(
+                "tuple bounds must satisfy 2 <= min_tuple <= max_tuple <= 6"
+            ))
+        );
+    }
+
+    #[test]
+    fn hard_tuple_sampling_biases_toward_larger_targets() {
+        let config = FungsterConfig {
+            max_tuple: MAX_FUNGSTER_TUPLE,
+            target_tuple_sampling: TupleTargetSampling::Difficulty(TupleDifficulty::Hard),
+            ..FungsterConfig::default()
+        };
+        let mut rng = Rng64::new(99);
+        let mut counts = [0_usize; MAX_FUNGSTER_TUPLE + 1];
+        for _ in 0..5_000 {
+            let tuple = sample_fungster_target_tuple(&config, &mut rng).unwrap();
+            counts[tuple] += 1;
+        }
+
+        let lower = counts[2] + counts[3];
+        let higher = counts[5] + counts[6];
+        assert!(higher > lower * 4);
+    }
+
+    #[test]
+    fn tuple_fallback_tries_lower_targets_until_success() {
+        let mut attempted = Vec::new();
+        let result = attempt_tuple_targets(6, 3, |tuple| {
+            attempted.push(tuple);
+            if tuple == 4 {
+                Ok(tuple)
+            } else {
+                Err(GeneratorError::InvalidConfig(
+                    "width cannot be tiled by the configured tuple bounds",
+                ))
+            }
+        });
+
+        assert_eq!(result, Ok(4));
+        assert_eq!(attempted, vec![6, 5, 4]);
+    }
+
+    #[test]
+    fn tuple_fallback_stops_on_non_retryable_errors() {
+        let mut attempted = Vec::new();
+        let result = attempt_tuple_targets(6, 3, |tuple| {
+            attempted.push(tuple);
+            Err::<usize, _>(GeneratorError::Board(BoardError::ZeroWidth))
+        });
+
+        assert_eq!(result, Err(GeneratorError::Board(BoardError::ZeroWidth)));
+        assert_eq!(attempted, vec![6]);
+    }
 }

@@ -5,6 +5,7 @@ use _native::board::Board;
 use _native::generator::{
     generate_fungster_board, generate_random_board, generate_rejection_solvable_board,
     FungsterConfig, FungsterPartitionStrategy, RandomConfig, RejectionConfig, Rng64,
+    TupleDifficulty, TupleTargetSampling,
 };
 use _native::instrument::{
     instrumentation_available, profile_solver_call, FlamegraphEvent, FlamegraphSettings,
@@ -28,6 +29,15 @@ enum GeneratorKind {
 enum FungsterPartitionArg {
     StraightStrips,
     RandomBacktracking,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum TupleTargetSamplingArg {
+    Max,
+    Uniform,
+    Easy,
+    Normal,
+    Hard,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
@@ -82,6 +92,15 @@ struct FungsterArgs {
     min_tuple: usize,
     #[arg(long, default_value_t = 4)]
     max_tuple: usize,
+    /// Lower target tuple tried after a sampled target fails. Defaults to min-tuple.
+    #[arg(long)]
+    fallback_min_tuple: Option<usize>,
+    /// How to sample the target upper tuple for each generated board.
+    #[arg(long, value_enum, default_value = "max")]
+    tuple_target_sampling: TupleTargetSamplingArg,
+    /// Comma-separated weights for min-tuple..=max-tuple, overriding tuple-target-sampling.
+    #[arg(long)]
+    tuple_weights: Option<String>,
 }
 
 #[derive(Clone, Debug, Args)]
@@ -186,6 +205,11 @@ fn build_board(config: &Config, rng: &mut Rng64) -> Result<Board, String> {
                 attempts: config.generation.max_attempts,
                 min_tuple: config.fungster.min_tuple,
                 max_tuple: config.fungster.max_tuple,
+                fallback_min_tuple: config
+                    .fungster
+                    .fallback_min_tuple
+                    .unwrap_or(config.fungster.min_tuple),
+                target_tuple_sampling: fungster_tuple_sampling(&config.fungster)?,
                 partition_strategy: config.fungster.fungster_partition.into(),
             },
             rng,
@@ -213,6 +237,36 @@ fn build_board(config: &Config, rng: &mut Rng64) -> Result<Board, String> {
         )
         .map_err(|error| format!("{error:?}")),
     }
+}
+
+fn fungster_tuple_sampling(args: &FungsterArgs) -> Result<TupleTargetSampling, String> {
+    if let Some(raw_weights) = &args.tuple_weights {
+        return parse_tuple_weights(raw_weights).map(TupleTargetSampling::Weights);
+    }
+
+    Ok(match args.tuple_target_sampling {
+        TupleTargetSamplingArg::Max => TupleTargetSampling::Max,
+        TupleTargetSamplingArg::Uniform => TupleTargetSampling::Uniform,
+        TupleTargetSamplingArg::Easy => TupleTargetSampling::Difficulty(TupleDifficulty::Easy),
+        TupleTargetSamplingArg::Normal => TupleTargetSampling::Difficulty(TupleDifficulty::Normal),
+        TupleTargetSamplingArg::Hard => TupleTargetSampling::Difficulty(TupleDifficulty::Hard),
+    })
+}
+
+fn parse_tuple_weights(raw_weights: &str) -> Result<Vec<u32>, String> {
+    if raw_weights.trim().is_empty() {
+        return Err("--tuple-weights must not be empty".to_string());
+    }
+
+    raw_weights
+        .split(',')
+        .map(|part| {
+            let value = part.trim();
+            value
+                .parse::<u32>()
+                .map_err(|_| format!("invalid tuple weight: {value}"))
+        })
+        .collect()
 }
 
 impl From<FungsterPartitionArg> for FungsterPartitionStrategy {

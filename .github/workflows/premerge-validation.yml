@@ -87,7 +87,7 @@ jobs:
         run: docker compose config
 
   preapproved-maintainer-gate:
-    name: Preapproved maintainer gate
+    name: Preapproved trusted maintainer gate
     if: >-
       ${{
         (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') &&
@@ -98,7 +98,7 @@ jobs:
     permissions:
       pull-requests: read
     steps:
-      - name: Require maintainer author or maintainer approval
+      - name: Allow maintainer author or require maintainer approval
         env:
           GH_TOKEN: ${{ github.token }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
@@ -118,7 +118,7 @@ jobs:
           }
 
           if is_preapproved_maintainer "$PR_AUTHOR"; then
-            echo "PR author '$PR_AUTHOR' is a preapproved maintainer."
+            echo "PR author '$PR_AUTHOR' is a trusted preapproved maintainer; self-approval is not required."
             exit 0
           fi
 
@@ -139,7 +139,7 @@ jobs:
             exit 0
           fi
 
-          echo "::error::PR author '$PR_AUTHOR' is not in PREAPPROVED_MAINTAINERS and no preapproved maintainer has approved head commit '$PR_HEAD_SHA'."
+          echo "::error::PR author '$PR_AUTHOR' is not in PREAPPROVED_MAINTAINERS. A listed maintainer must approve head commit '$PR_HEAD_SHA'."
           exit 1
 
   merge-preapproved-pr:

@@ -155,8 +155,10 @@ The authoritative premerge checks live in:
 
 `preapproved` is guarded by the workflow's `PREAPPROVED_MAINTAINERS` list, which
 includes the repository creator `htrn000`. Pull requests targeting
-`preapproved` are only auto-merge candidates when the PR author is in that list
-or a maintainer from that list has approved the current PR head commit.
+`preapproved` are auto-merge candidates when the PR author is in that list. This
+supports the current sole-maintainer workflow because GitHub does not allow
+self-approval. PRs from anyone else need approval from a listed maintainer on
+the current PR head commit.
 
 Before requesting merge, review that workflow and run the same commands locally
 to verify your changes against CI expectations.

@@ -125,6 +125,21 @@ ordering was the wrong final shape:
 | fully incremental DFS | 29.752s | 16.003s |
 | hybrid | 4.807s | 17.266s |
 
+For the fungster board family, the per-approach data explains why the hybrid is
+the best current shape:
+
+| version | approach | ok / 30 | state-limit / 30 | ok elapsed total |
+| --- | --- | ---: | ---: | ---: |
+| baseline scan | `dfs_first_largest` | 3 | 27 | 70.201ms |
+| baseline scan | `dfs_first_smallest` | 30 | 0 | 322.621ms |
+| baseline scan | `dp_exhaustive` | 9 | 21 | 37.609ms |
+| fully incremental DFS | `dfs_first_largest` | 4 | 26 | 2094.076ms |
+| fully incremental DFS | `dfs_first_smallest` | 30 | 0 | 46.803ms |
+| fully incremental DFS | `dp_exhaustive` | 9 | 21 | 39.140ms |
+| hybrid | `dfs_first_largest` | 3 | 27 | 74.365ms |
+| hybrid | `dfs_first_smallest` | 30 | 0 | 45.774ms |
+| hybrid | `dp_exhaustive` | 9 | 21 | 37.553ms |
+
 The fully incremental path made candidate collection nearly free, but
 largest-first pays too much apply/undo maintenance cost while exploring many
 failed branches. The current hybrid keeps the scan path for largest-first and

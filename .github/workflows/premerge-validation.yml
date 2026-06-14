@@ -5,11 +5,23 @@ on:
     branches:
       - main
       - preapproved
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+  merge_group:
+    branches:
+      - main
+      - preapproved
   push:
     branches:
       - main
       - preapproved
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
   group: premerge-validation-${{ github.ref }}
@@ -65,3 +77,27 @@ jobs:
 
       - name: Validate Docker Compose configuration
         run: docker compose config
+
+  merge-preapproved-pr:
+    name: Merge preapproved PR
+    if: >-
+      ${{
+        github.event_name == 'pull_request' &&
+        github.event.pull_request.base.ref == 'preapproved' &&
+        github.event.pull_request.draft == false &&
+        github.event.pull_request.head.repo.full_name == github.repository
+      }}
+    needs:
+      - python-checks
+      - rust-tests
+      - docker-compose-config
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Merge pull request into preapproved
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge "$PR_URL" --merge

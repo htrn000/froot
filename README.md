@@ -35,6 +35,48 @@ uv run pytest
 uv run ruff check .
 ```
 
+Run the Rust static-solver benchmark binary:
+
+```bash
+cargo run --release --bin fruitbox_bench -- --generator fungster --width 17 --height 10
+```
+
+Generate per-approach flamegraphs and candidate telemetry while benchmarking:
+
+```bash
+cargo run --release --bin fruitbox_bench -- \
+  --generator fungster \
+  --samples 1 \
+  --flamegraph-dir /tmp/fruitbox-flamegraphs \
+  --candidate-profile
+```
+
+Disable instrumentation completely at compile time (useful for clean perf baselines):
+
+```bash
+cargo run --release --bin fruitbox_bench --features no_instrument -- \
+  --generator fungster
+```
+
+Detailed profiler setup notes and the first profiling findings are documented in
+`docs/profiling.md`.
+
+The benchmark prints CSV rows for DFS single-solution candidates and the
+memoized exhaustive DP summary. Use `--generator random` for positive 17x10
+boards whose total sum is divisible by 10, or `--generator rejection` to keep
+sampling until the DFS candidate finds an empty-board solution. Prefer official
+17x10 grids for benchmark evidence; smaller grids are only for fast debugging
+or solver research iteration. The fungster generator supports injectable
+partition strategies: `--fungster-partition straight-strips` uses a simple
+mixed horizontal/vertical strip partition, while `random-backtracking` randomly
+tiles valid rectangular sum-10 moves and restarts if it gets stuck. Use
+`--max-empty-solutions <n>` to let exhaustive DP stop after seeing `n`
+empty-board solutions and mark the CSV row as partial. Solver benchmarks
+default to `--solver-preset benchmark` (`--max-states 2000`), which keeps
+30-board runs around a minute on the current cloud VM; use
+`--solver-preset iteration` for the faster 140-state iteration preset, or pass
+`--max-states <n>` to override either preset.
+
 ## Docker Compose
 
 Start the API and MySQL:

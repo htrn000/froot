@@ -1,0 +1,168 @@
+name: premerge-validation
+
+on:
+  pull_request:
+    branches:
+      - main
+      - preapproved
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+  pull_request_review:
+    types:
+      - submitted
+      - edited
+      - dismissed
+  merge_group:
+    branches:
+      - main
+      - preapproved
+  push:
+    branches:
+      - main
+      - preapproved
+  workflow_dispatch:
+
+env:
+  PREAPPROVED_MAINTAINERS: htrn000
+
+permissions:
+  contents: read
+
+concurrency:
+  group: premerge-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python-checks:
+    name: Python checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run Ruff
+        run: uv run ruff check .
+
+      - name: Run Pytest
+        run: uv run pytest
+
+  rust-tests:
+    name: Rust tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run Cargo tests
+        run: cargo test
+
+  docker-compose-config:
+    name: Docker Compose config
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate Docker Compose configuration
+        run: docker compose config
+
+  preapproved-maintainer-gate:
+    name: Preapproved maintainer gate
+    if: >-
+      ${{
+        (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') &&
+        github.event.pull_request.base.ref == 'preapproved' &&
+        github.event.pull_request.draft == false
+      }}
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    steps:
+      - name: Require maintainer author or maintainer approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+
+          is_preapproved_maintainer() {
+            local login="$1"
+            for maintainer in $PREAPPROVED_MAINTAINERS; do
+              if [ "$login" = "$maintainer" ]; then
+                return 0
+              fi
+            done
+            return 1
+          }
+
+          if is_preapproved_maintainer "$PR_AUTHOR"; then
+            echo "PR author '$PR_AUTHOR' is a preapproved maintainer."
+            exit 0
+          fi
+
+          approved_by=""
+          while IFS=$'\t' read -r reviewer commit_id; do
+            if [ "$commit_id" = "$PR_HEAD_SHA" ] && is_preapproved_maintainer "$reviewer"; then
+              approved_by="$reviewer"
+              break
+            fi
+          done < <(
+            gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/reviews" \
+              --jq '.[] | select(.state == "APPROVED") | [.user.login, .commit_id] | @tsv'
+          )
+
+          if [ -n "$approved_by" ]; then
+            echo "PR head commit approved by preapproved maintainer '$approved_by'."
+            exit 0
+          fi
+
+          echo "::error::PR author '$PR_AUTHOR' is not in PREAPPROVED_MAINTAINERS and no preapproved maintainer has approved head commit '$PR_HEAD_SHA'."
+          exit 1
+
+  merge-preapproved-pr:
+    name: Merge preapproved PR
+    if: >-
+      ${{
+        (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') &&
+        github.event.pull_request.base.ref == 'preapproved' &&
+        github.event.pull_request.draft == false &&
+        github.event.pull_request.head.repo.full_name == github.repository
+      }}
+    needs:
+      - python-checks
+      - rust-tests
+      - docker-compose-config
+      - preapproved-maintainer-gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Merge pull request into preapproved
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge "$PR_URL" --merge

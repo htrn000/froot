@@ -3,7 +3,26 @@
 This repo uses Python 3.12, uv, maturin/PyO3, Rust/Cargo, FastAPI, and Docker
 Compose.
 
+## Repository direction
+
+`froot` is a standalone repo today, but it is expected to be interned into the
+`depot` monorepo eventually. Keep documentation, CI, and environment setup easy
+to transplant into `depot` instead of assuming `froot` will stay isolated.
+
 ## Cursor Cloud specific instructions
+
+### Shared environment with depot
+
+Cursor Cloud environments for this workspace should support both repos:
+
+- `froot`: Python 3.12, `uv`, `maturin`/PyO3, Rust stable, FastAPI, and Docker
+  Compose.
+- `depot`: Nix, `nix-daemon` when systemd is unavailable, flake commands with
+  `--accept-flake-config`, and the depot default dev shell.
+
+When changing startup scripts, base images, or environment docs, preserve this
+dual-repo setup so agents can validate `froot` in place today and later move it
+into `depot` without reworking the Cloud toolchain.
 
 ### Toolchain is preinstalled in the VM snapshot
 
@@ -127,3 +146,17 @@ uv run ruff check .
 cargo test
 sudo docker compose config
 ```
+
+## CI workflow parity
+
+The authoritative premerge checks live in:
+
+- `.github/workflows/premerge-validation.yml`
+
+`preapproved` is guarded by the workflow's `PREAPPROVED_MAINTAINERS` list, which
+includes the repository creator `htrn000`. Pull requests targeting
+`preapproved` are only auto-merge candidates when the PR author is in that list
+or a maintainer from that list has approved the current PR head commit.
+
+Before requesting merge, review that workflow and run the same commands locally
+to verify your changes against CI expectations.

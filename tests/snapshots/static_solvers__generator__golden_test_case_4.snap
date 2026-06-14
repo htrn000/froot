@@ -1,0 +1,8 @@
+---
+source: tests/static_solvers.rs
+expression: "rejection_snapshot(seed, result)"
+---
+generator=rejection
+seed=13
+result=exhausted
+attempts=2

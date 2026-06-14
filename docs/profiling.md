@@ -116,10 +116,35 @@ Post-change smoke measurement:
   - `sort_time_us=0`
 
 Thirty-board release benchmarks with `max-states=1000` and
-`max-empty-solutions=1`:
+`max-empty-solutions=1` showed that applying the incremental state to every DFS
+ordering was the wrong final shape:
 
-- `fungster`: `wall_seconds=31.568`
-- `random`: `wall_seconds=18.012`
+| version | fungster wall | random wall |
+| --- | ---: | ---: |
+| baseline scan | 5.070s | 14.632s |
+| fully incremental DFS | 29.752s | 16.003s |
+| hybrid | 4.807s | 17.266s |
 
-The remaining wall time is mostly failed largest-first DFS branches and
-exhaustive DP state-limit paths, not candidate sorting.
+The fully incremental path made candidate collection nearly free, but
+largest-first pays too much apply/undo maintenance cost while exploring many
+failed branches. The current hybrid keeps the scan path for largest-first and
+uses incremental buckets for smallest-first, where constructed fungster boards
+typically follow the small-tile solution path.
+
+Post-hybrid candidate profile for a fungster sample:
+
+- `dfs_first_largest` (`max-states=1000`):
+  - `calls=1000`
+  - `total_candidates=88207`
+  - `collect_time_us=134276`
+  - `sort_time_us=836`
+- `dfs_first_smallest`:
+  - `calls=66`
+  - `total_candidates=13991`
+  - `collect_time_us=79`
+  - `sort_time_us=0`
+
+This is only a net win for fungster at the current cap. Random boards still
+prefer the scan path in aggregate, so any future optimization should focus on
+reducing incremental apply/undo churn or selecting the transition strategy per
+board family and ordering.

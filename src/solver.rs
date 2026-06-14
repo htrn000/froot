@@ -23,7 +23,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use crate::board::{Board, Mask, TARGET_SUM};
+use crate::board::{Board, Mask, Rectangle, TARGET_SUM};
 
 #[derive(Clone, Copy, Debug)]
 /// Bounds intentionally live outside each solver so benchmark runs can compare
@@ -312,12 +312,29 @@ pub fn has_empty_solution(
     limits: SolverLimits,
 ) -> Result<EmptySearchResult, SearchError> {
     let started = Instant::now();
-    let mut search = IncrementalSearch::new(board, ordering);
-    let empty_solvable = search.has_empty_solution(limits)?;
+    let (empty_solvable, states_evaluated) = match ordering {
+        MoveOrdering::SmallestScoreFirst => {
+            let mut search = IncrementalSearch::new(board, ordering);
+            (search.has_empty_solution(limits)?, search.states_evaluated)
+        }
+        MoveOrdering::LargestScoreFirst => {
+            let mut dead_states = HashSet::new();
+            let mut states_evaluated = 0;
+            let empty_solvable = dfs_has_empty_scan(
+                board,
+                board.initial_state(),
+                ordering,
+                limits,
+                &mut dead_states,
+                &mut states_evaluated,
+            )?;
+            (empty_solvable, states_evaluated)
+        }
+    };
 
     Ok(EmptySearchResult {
         empty_solvable,
-        states_evaluated: search.states_evaluated,
+        states_evaluated,
         elapsed: started.elapsed(),
     })
 }
@@ -328,9 +345,28 @@ pub fn solve_first_empty(
     limits: SolverLimits,
 ) -> Result<SingleSolution, SearchError> {
     let started = Instant::now();
-    let mut search = IncrementalSearch::new(board, ordering);
     let mut moves = Vec::new();
-    let solved = search.first_empty(limits, &mut moves)?;
+    let (solved, states_evaluated) = match ordering {
+        MoveOrdering::SmallestScoreFirst => {
+            let mut search = IncrementalSearch::new(board, ordering);
+            let solved = search.first_empty(limits, &mut moves)?;
+            (solved, search.states_evaluated)
+        }
+        MoveOrdering::LargestScoreFirst => {
+            let mut dead_states = HashSet::new();
+            let mut states_evaluated = 0;
+            let solved = dfs_first_empty_scan(
+                board,
+                board.initial_state(),
+                ordering,
+                limits,
+                &mut dead_states,
+                &mut moves,
+                &mut states_evaluated,
+            )?;
+            (solved, states_evaluated)
+        }
+    };
     let score = moves.iter().map(|(_, _, _, _, score)| *score).sum();
     let move_coords: Vec<(usize, usize, usize, usize)> = moves
         .into_iter()
@@ -342,7 +378,7 @@ pub fn solve_first_empty(
         score,
         steps: solved.then_some(move_coords_len(&move_coords)),
         moves: move_coords,
-        states_evaluated: search.states_evaluated,
+        states_evaluated,
         elapsed: started.elapsed(),
     })
 }
@@ -621,4 +657,106 @@ impl<'a> IncrementalSearch<'a> {
 struct MoveUndo {
     previous_state: Mask,
     removed_cells: Vec<usize>,
+}
+
+fn dfs_has_empty_scan(
+    board: &Board,
+    state: Mask,
+    ordering: MoveOrdering,
+    limits: SolverLimits,
+    dead_states: &mut HashSet<Mask>,
+    states_evaluated: &mut usize,
+) -> Result<bool, SearchError> {
+    if state.is_empty() {
+        return Ok(true);
+    }
+    if dead_states.contains(&state) {
+        return Ok(false);
+    }
+    if *states_evaluated >= limits.max_states {
+        return Err(SearchError::StateLimitExceeded {
+            max_states: limits.max_states,
+        });
+    }
+    *states_evaluated += 1;
+
+    for rectangle in ordered_candidates_scan(board, state, ordering) {
+        if dfs_has_empty_scan(
+            board,
+            board.apply(state, rectangle),
+            ordering,
+            limits,
+            dead_states,
+            states_evaluated,
+        )? {
+            return Ok(true);
+        }
+    }
+
+    dead_states.insert(state);
+    Ok(false)
+}
+
+fn dfs_first_empty_scan(
+    board: &Board,
+    state: Mask,
+    ordering: MoveOrdering,
+    limits: SolverLimits,
+    dead_states: &mut HashSet<Mask>,
+    moves: &mut Vec<(usize, usize, usize, usize, u16)>,
+    states_evaluated: &mut usize,
+) -> Result<bool, SearchError> {
+    if state.is_empty() {
+        return Ok(true);
+    }
+    if dead_states.contains(&state) {
+        return Ok(false);
+    }
+    if *states_evaluated >= limits.max_states {
+        return Err(SearchError::StateLimitExceeded {
+            max_states: limits.max_states,
+        });
+    }
+    *states_evaluated += 1;
+
+    for rectangle in ordered_candidates_scan(board, state, ordering) {
+        let score = board.live_score(state, rectangle);
+        moves.push((
+            rectangle.left,
+            rectangle.top,
+            rectangle.right,
+            rectangle.bottom,
+            score,
+        ));
+        if dfs_first_empty_scan(
+            board,
+            board.apply(state, rectangle),
+            ordering,
+            limits,
+            dead_states,
+            moves,
+            states_evaluated,
+        )? {
+            return Ok(true);
+        }
+        moves.pop();
+    }
+
+    dead_states.insert(state);
+    Ok(false)
+}
+
+fn ordered_candidates_scan(board: &Board, state: Mask, ordering: MoveOrdering) -> Vec<Rectangle> {
+    let profiling_enabled = candidate_profile_enabled();
+    let collect_started = profiling_enabled.then(Instant::now);
+    let mut candidates: Vec<Rectangle> = board.valid_moves(state, TARGET_SUM).collect();
+    let collect_ns = collect_started.map_or(0, |started| started.elapsed().as_nanos());
+    let sort_started = profiling_enabled.then(Instant::now);
+    candidates.sort_by_key(|rectangle| board.live_score(state, *rectangle));
+    if ordering == MoveOrdering::LargestScoreFirst {
+        candidates.reverse();
+    }
+    let sort_ns = sort_started.map_or(0, |started| started.elapsed().as_nanos());
+    record_candidate_profile(candidates.len(), collect_ns, sort_ns);
+    candidates
 }

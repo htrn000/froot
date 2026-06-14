@@ -168,10 +168,13 @@ fn flamegraph_settings(config: &Config) -> FlamegraphSettings {
 }
 
 fn effective_max_states(config: &Config) -> usize {
-    config.solver.max_states.unwrap_or(match config.solver.solver_preset {
-        SolverPresetArg::Iteration => 140,
-        SolverPresetArg::Benchmark => 2_000,
-    })
+    config
+        .solver
+        .max_states
+        .unwrap_or(match config.solver.solver_preset {
+            SolverPresetArg::Iteration => 140,
+            SolverPresetArg::Benchmark => 2_000,
+        })
 }
 
 fn build_board(config: &Config, rng: &mut Rng64) -> Result<Board, String> {

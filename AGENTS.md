@@ -153,5 +153,10 @@ The authoritative premerge checks live in:
 
 - `.github/workflows/premerge-validation.yml`
 
+`preapproved` is guarded by the workflow's `PREAPPROVED_MAINTAINERS` list, which
+includes the repository creator `htrn000`. Pull requests targeting
+`preapproved` are only auto-merge candidates when the PR author is in that list
+or a maintainer from that list has approved the current PR head commit.
+
 Before requesting merge, review that workflow and run the same commands locally
 to verify your changes against CI expectations.

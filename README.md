@@ -6,6 +6,7 @@ Fruitbox game backend scaffold using:
 - [maturin](https://www.maturin.rs/) for Rust/PyO3 bindings;
 - FastAPI for the web API shell;
 - MySQL for persistent backend state;
+- SQLite for provisioned and deployment sample catalogs;
 - Docker Compose for local stack orchestration.
 
 The intended product shape is singleplayer, multiplayer, and selectable bot
@@ -51,6 +52,9 @@ The API listens on <http://localhost:8000>. MySQL listens on localhost port
 - `GET /health`
 - `GET /api/v1/modes`
 - `POST /api/v1/solver/static-move`
+- `GET /api/v1/samples/sets`
+- `GET /api/v1/samples/sets/{sample_set_id}/records`
+- `GET /api/v1/samples/training-exclusions`
 
 Example solver request:
 
@@ -70,3 +74,12 @@ path to reuse the Rust crate from Wasm.
 If real-time multiplayer, authoritative game ticks, matchmaking, or long-running
 bot jobs become the backend's dominant concern, consider promoting the Rust core
 into a dedicated Axum/Tokio service. See `docs/architecture.md` for details.
+
+## Sample catalog
+
+Curated Fruitbox game captures live in the in-repo SQLite catalog at
+`data/provisioned/fruitbox_samples.sqlite3`. Deployment-specific catalogs can be
+added with `FRUITBOX_SAMPLE_CATALOG_OVERLAYS` without committing impure rows.
+
+See `docs/sample-catalog.md` for the schema, provisioning CLI, API query hooks,
+and RL training-exclusion policy.

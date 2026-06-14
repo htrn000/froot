@@ -3,6 +3,8 @@ services:
     build: .
     environment:
       FRUITBOX_DATABASE_URL: mysql+asyncmy://fruitbox:fruitbox@mysql:3306/fruitbox
+      FRUITBOX_SAMPLE_CATALOG_PATH: data/provisioned/fruitbox_samples.sqlite3
+      FRUITBOX_SAMPLE_CATALOG_OVERLAYS: ""
     ports:
       - "8000:8000"
     depends_on:

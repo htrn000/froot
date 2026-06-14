@@ -10,6 +10,7 @@ ENV UV_COMPILE_BYTECODE=1
 ENV UV_LINK_MODE=copy
 
 COPY pyproject.toml uv.lock Cargo.toml Cargo.lock README.md ./
+COPY data ./data
 COPY python ./python
 COPY src ./src
 

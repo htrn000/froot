@@ -1,6 +1,15 @@
 from fastapi import APIRouter
 
-from fruitbox_api.models import BoardRequest, GameMode, Rectangle, StaticMoveResponse
+from fruitbox_api.models import (
+    BoardRequest,
+    GameMode,
+    Rectangle,
+    SampleRecord,
+    SampleSet,
+    StaticMoveResponse,
+    TrainingExclusion,
+)
+from fruitbox_api.sample_catalog import configured_sample_catalog
 from fruitbox_core import find_sum_rectangles
 
 router = APIRouter()
@@ -58,3 +67,18 @@ async def static_move(board: BoardRequest) -> StaticMoveResponse:
         move=rectangles[0] if rectangles else None,
         candidates=rectangles,
     )
+
+
+@router.get("/samples/sets", response_model=list[SampleSet])
+def list_sample_sets() -> list[SampleSet]:
+    return configured_sample_catalog().list_sets()
+
+
+@router.get("/samples/sets/{sample_set_id}/records", response_model=list[SampleRecord])
+def list_sample_records(sample_set_id: str) -> list[SampleRecord]:
+    return configured_sample_catalog().list_records(sample_set_id=sample_set_id)
+
+
+@router.get("/samples/training-exclusions", response_model=list[TrainingExclusion])
+def list_training_exclusions() -> list[TrainingExclusion]:
+    return configured_sample_catalog().list_training_exclusions()

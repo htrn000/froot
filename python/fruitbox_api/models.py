@@ -38,3 +38,40 @@ class GameMode(BaseModel):
     label: str
     offline_capable: bool
     description: str
+
+
+class SampleSet(BaseModel):
+    id: str
+    label: str
+    description: str
+    source_name: str
+    source_kind: str
+    purpose: str
+    exclude_from_training: bool
+    sample_count: int
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
+class SampleRecord(BaseModel):
+    id: str
+    sample_set_id: str
+    source_name: str
+    source_kind: str
+    image_uri: str
+    image_sha256: str | None = None
+    perceptual_hash: str | None = None
+    board_signature: str | None = None
+    width: int | None = None
+    height: int | None = None
+    captured_at: str | None = None
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
+class TrainingExclusion(BaseModel):
+    sample_set_id: str
+    record_id: str
+    source_name: str
+    source_kind: str
+    image_sha256: str | None = None
+    perceptual_hash: str | None = None
+    board_signature: str | None = None

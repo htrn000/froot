@@ -8,6 +8,7 @@ That pattern is a good fit while the backend is mostly product/API orchestration
 
 - account/session APIs, persistence, and deployment configuration in Python;
 - async MySQL access and web concerns in FastAPI;
+- sample-catalog reads and provisioning hooks in Python/SQLite;
 - deterministic game rules, scoring, and static solver code in Rust;
 - one Rust crate that can later expose both PyO3 bindings and a Wasm/browser build.
 
@@ -46,6 +47,8 @@ kept server-side at first and exposed as an online bot mode.
 
 - `python/fruitbox_api`: FastAPI app, config, request/response models, routes.
 - `python/fruitbox_core`: Python import wrapper for the maturin extension.
+- `data/provisioned`: in-repo SQLite sample catalog plus image paths for curated
+  evaluation captures.
 - `src/lib.rs`: Rust/PyO3 game-core primitive for finding target-sum rectangles.
 - `docker-compose.yml`: API plus MySQL 8.4.
 - `pyproject.toml` and `uv.lock`: uv-managed Python dependencies.

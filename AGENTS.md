@@ -70,3 +70,12 @@ uv run ruff check .
 cargo test
 sudo docker compose config
 ```
+
+## CI workflow parity
+
+The authoritative premerge checks live in:
+
+- `.github/workflows/premerge-validation.yml`
+
+Before requesting merge, review that workflow and run the same commands locally
+to verify your changes against CI expectations.

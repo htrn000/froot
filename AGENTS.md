@@ -5,18 +5,51 @@ Compose.
 
 ## Cursor Cloud specific instructions
 
-- The per-session update script already runs `pip install --user uv maturin`
-  and `uv sync`, so dependencies and the Rust extension are prebuilt on startup.
-- `uv`/`maturin` live in `~/.local/bin`. That directory is added to `PATH` via
-  `~/.bashrc`, so it is available in fresh interactive shells without re-export.
-- The API runs in dev mode without MySQL: `uv run uvicorn
-  fruitbox_api.app:create_app --factory --reload`. The SQLAlchemy engine in
-  `python/fruitbox_api/db.py` is created lazily and never connected by the
-  `/health`, `/api/v1/modes`, or `/api/v1/solver/static-move` routes, so the
-  solver/core flow works fully offline. MySQL (via Docker Compose) is only
-  needed for future persistent-state features.
-- Docker is not preinstalled here; `docker compose` validation is optional and
-  not required to run or test the app in dev mode (see "Docker in cloud VMs").
+### Toolchain is preinstalled in the VM snapshot
+
+The heavy tools are baked into the VM snapshot, so fresh agents do **not**
+reinstall them each run:
+
+- Python 3.12, `uv` + `maturin` (in `~/.local/bin`).
+- `rustup` with the `stable` toolchain as default (`CARGO_HOME=/usr/local/cargo`,
+  `RUSTUP_HOME=/usr/local/rustup`, both on `PATH` system-wide).
+- `docker.io` (Docker Engine) + the `docker compose` v2 plugin (`docker-compose-v2`).
+
+`~/.bashrc` exports `~/.local/bin` and `$CARGO_HOME/bin` on `PATH` and sets
+`CARGO_HOME`/`RUSTUP_HOME`, so interactive shells resolve `uv`, `rustc`, and
+`cargo` without manual setup.
+
+### Per-session update script (fast + idempotent)
+
+The startup script only verifies tools and refreshes deps — it never reinstalls
+the toolchain:
+
+1. Installs `uv`/`maturin` **only if missing** (guarded fallback).
+2. Prints startup checks for `uv`, `rustc`, and `docker compose`.
+3. Runs `uv sync` (which rebuilds the `fruitbox_core` Rust extension only when
+   sources change).
+
+### Docker daemon for restricted VMs
+
+`docker compose config` does **not** need a running daemon, but `docker compose
+up`/`build` do. Cloud VMs often lack systemd, so start the daemon manually with
+the restricted-VM fallback flags (no iptables/bridge):
+
+```bash
+sudo dockerd --host=unix:///var/run/docker.sock \
+  --iptables=false --ip-forward=false --bridge=none >/var/log/dockerd.log 2>&1 &
+```
+
+Use `sudo docker ...` (the current user is not in the `docker` group).
+
+### Running the app without MySQL
+
+The API runs in dev mode without MySQL: `uv run uvicorn
+fruitbox_api.app:create_app --factory --reload`. The SQLAlchemy engine in
+`python/fruitbox_api/db.py` is created lazily and never connected by the
+`/health`, `/api/v1/modes`, or `/api/v1/solver/static-move` routes, so the
+solver/core flow works fully offline. MySQL (via Docker Compose) is only needed
+for future persistent-state features.
 
 ## Bootstrap tools
 

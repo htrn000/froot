@@ -3,6 +3,21 @@
 This repo uses Python 3.12, uv, maturin/PyO3, Rust/Cargo, FastAPI, and Docker
 Compose.
 
+## Cursor Cloud specific instructions
+
+- The per-session update script already runs `pip install --user uv maturin`
+  and `uv sync`, so dependencies and the Rust extension are prebuilt on startup.
+- `uv`/`maturin` live in `~/.local/bin`. That directory is added to `PATH` via
+  `~/.bashrc`, so it is available in fresh interactive shells without re-export.
+- The API runs in dev mode without MySQL: `uv run uvicorn
+  fruitbox_api.app:create_app --factory --reload`. The SQLAlchemy engine in
+  `python/fruitbox_api/db.py` is created lazily and never connected by the
+  `/health`, `/api/v1/modes`, or `/api/v1/solver/static-move` routes, so the
+  solver/core flow works fully offline. MySQL (via Docker Compose) is only
+  needed for future persistent-state features.
+- Docker is not preinstalled here; `docker compose` validation is optional and
+  not required to run or test the app in dev mode (see "Docker in cloud VMs").
+
 ## Bootstrap tools
 
 If uv or maturin are missing in a fresh cloud VM, install them for the current

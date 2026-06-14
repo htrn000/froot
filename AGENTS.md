@@ -12,7 +12,10 @@ reinstall them each run:
 
 - Python 3.12, `uv` + `maturin` (in `~/.local/bin`).
 - `rustup` with the `stable` toolchain as default (`CARGO_HOME=/usr/local/cargo`,
-  `RUSTUP_HOME=/usr/local/rustup`, both on `PATH` system-wide).
+  `RUSTUP_HOME=/usr/local/rustup`, both on `PATH` system-wide). `stable`
+  (currently `rustc`/`cargo` 1.96) covers `froot`'s crate: Rust **edition 2021**,
+  `Cargo.lock` format **v4** (needs cargo ≥ 1.78), and `pyo3 0.28`. There is no
+  `rust-toolchain.toml` pin, so keep `stable` recent enough for these.
 - `docker.io` (Docker Engine) + the `docker compose` v2 plugin (`docker-compose-v2`).
 
 `~/.bashrc` exports `~/.local/bin` and `$CARGO_HOME/bin` on `PATH` and sets
@@ -21,13 +24,19 @@ reinstall them each run:
 
 ### Per-session update script (fast + idempotent)
 
-The startup script only verifies tools and refreshes deps — it never reinstalls
-the toolchain:
+The startup script verifies tools and refreshes deps without reinstalling the
+preinstalled toolchain on every run:
 
 1. Installs `uv`/`maturin` **only if missing** (guarded fallback).
-2. Prints startup checks for `uv`, `rustc`, and `docker compose`.
-3. Runs `uv sync` (which rebuilds the `fruitbox_core` Rust extension only when
+2. Ensures `docker.io` + `docker-compose-v2` — `apt`-installs them **only if
+   `docker` is missing** (guarded; a no-op on snapshotted VMs that already have
+   it).
+3. Prints startup checks for `uv`, `rustc`, and `docker compose`.
+4. Runs `uv sync` (which rebuilds the `fruitbox_core` Rust extension only when
    sources change).
+
+The guarded `docker` install is the only `apt` step and self-heals a VM that
+lost Docker; the daemon is still not started here (see below).
 
 ### Docker daemon for restricted VMs
 
